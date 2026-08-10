@@ -1,7 +1,58 @@
 import express from "express";
 import { pool } from "./db.js";
 import { createEventSchema } from "./schemas/event.js";
+import { verifyGitHubSignature } from "./github.js";
+
 const app = express();
+
+app.post(
+    "/webhooks/github",
+    express.raw({ type: "application/json" }),
+    (req, res) => {
+        const secret = process.env.GITHUB_WEBHOOK_SECRET;
+        const signature = req.get("x-hub-signature-256");
+
+        if (!secret) {
+            return res
+                .status(500)
+                .json({ error: "GitHub webhook secret is not configured" });
+        }
+
+        if (!signature) {
+            return res.status(401).json({ error: "Invalid signature" });
+        }
+
+        if (!Buffer.isBuffer(req.body)) {
+            return res.status(400).json({ error: "Invalid webhook body" });
+        }
+
+        if (!verifyGitHubSignature(req.body, signature, secret)) {
+            return res.status(401).json({ error: "Invalid signature" });
+        }
+
+        let payload;
+
+        try {
+            payload = JSON.parse(req.body.toString("utf8"));
+        } catch {
+            return res.status(400).json({ error: "Invalid JSON payload" });
+        }
+
+        const eventType = req.get("x-github-event");
+        const deliveryId = req.get("x-github-delivery");
+
+        if (!eventType) {
+            return res.status(400).json({ error: "Invalid eventType" });
+        }
+
+        if (!deliveryId) {
+            return res.status(400).json({ error: "Invalid delivery" });
+        }
+
+        console.log({ eventType, deliveryId, payload });
+        return res.status(200).json({ status: "success" });
+    },
+);
 
 app.use(express.json());
 
