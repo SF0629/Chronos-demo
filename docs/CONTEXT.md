@@ -102,11 +102,11 @@ v0.1에서는 ORM을 사용하지 않는다.
 ```text
 Chronos-demo/
 ├─ apps/
-│  ├─ web/
-│  ├─ api/
-│  └─ agent/
+│  ├─ web/
+│  ├─ api/
+│  └─ agent/
 ├─ packages/
-│  └─ shared/        # 공통 계약이 필요해질 때 사용
+│  └─ shared/        # 공통 계약이 필요해질 때 사용
 ├─ infra/
 ├─ docs/
 ├─ package.json
@@ -161,7 +161,7 @@ PostgreSQL 접근은 API가 담당한다.
 
 `apps/agent`는 Docker 전용 Agent가 아니다.
 
-**Chronos Host Agent**이다.
+\***\*Chronos Host Agent\*\***이다.
 
 Chronos 서버가 원격에서 직접 접근하기 어려운
 사용자 Host 내부 정보를 수집하고 Chronos API로 전달한다.
@@ -250,15 +250,15 @@ Chronos 공통 Event 모델로 정규화한다.
 
 ```text
 Event
-id              UUID
-serviceId       UUID
-source          EventSource
-type            string
-title           string
-occurredAt      timestamp
-receivedAt      timestamp
-sourceEventId   string | null
-metadata        JSON
+id              UUID
+serviceId       UUID
+source          EventSource
+type            string
+title           string
+occurredAt      timestamp
+receivedAt      timestamp
+sourceEventId   string | null
+metadata        JSON
 ```
 
 예:
@@ -371,8 +371,8 @@ Service 1 ─── N Event
 Service 1 ─── N Incident
 
 Incident N ─── M Event
-             │
-             └─ incident_events
+             │
+             └─ incident_events
 ```
 
 `incident_events.score`는 Event 자체의 속성이 아니라
@@ -406,13 +406,13 @@ Chronos는 이를 근거로 root cause를 확정하지 않는다.
 현재 구현된 주요 endpoint:
 
 ```text
-GET  /health
+GET  /health
 
-GET  /events
+GET  /events
 
 POST /events
 
-GET  /services/:id/events
+GET  /services/:id/events
 ```
 
 현재 `POST /events`는:
@@ -631,11 +631,11 @@ Host-local Collector가 여러 개 생길 경우:
 agent/src/
 ├─ index.ts
 ├─ collectors/
-│  ├─ docker.ts
-│  ├─ systemd.ts
-│  └─ system.ts
+│  ├─ docker.ts
+│  ├─ systemd.ts
+│  └─ system.ts
 └─ client/
-   └─ chronos.ts
+   └─ chronos.ts
 ```
 
 형태를 고려한다.
@@ -657,19 +657,19 @@ apps/api/src/
 ├─ db.ts
 │
 ├─ routes/
-│  ├─ events.ts
-│  ├─ incidents.ts
-│  └─ webhooks/
-│     └─ github.ts
+│  ├─ events.ts
+│  ├─ incidents.ts
+│  └─ webhooks/
+│     └─ github.ts
 │
 ├─ services/
-│  ├─ events.ts
-│  ├─ incidents.ts
-│  └─ correlation.ts
+│  ├─ events.ts
+│  ├─ incidents.ts
+│  └─ correlation.ts
 │
 ├─ integrations/
-│  ├─ prometheus.ts
-│  └─ discord.ts
+│  ├─ prometheus.ts
+│  └─ discord.ts
 │
 └─ schemas/
 ```
@@ -688,13 +688,13 @@ GitHub Webhook처럼 두 번째 Event producer가 추가될 때:
 
 ```text
 Agent POST /events ─────┐
-                        ▼
-                   Event Service
-                        │
-                        ▼
-                     events DB
-                        ▲
-                        │
+                        ▼
+                   Event Service
+                        │
+                        ▼
+                     events DB
+                        ▲
+                        │
 GitHub Webhook ─────────┘
 ```
 
@@ -723,7 +723,7 @@ GitHub Webhook ─────────┘
 ```text
 packages/shared/
 └─ src/
-   └─ events.ts
+   └─ events.ts
 ```
 
 현재 중복이 작다면 미리 추상화하지 않는다.
@@ -817,7 +817,193 @@ v0.1이 완성되고 E2E 검증이 끝난 뒤
 
 ---
 
-## 21. Documentation Rule
+## 21. Development Collaboration Rule
+
+Chronos 개발에서는 사용자가 실제 개발 경험을 얻는 것을 중요하게 한다.
+
+### User's Direct Work
+
+사용자는 가능한 한 실제 구현 코드를 직접 작성한다.
+
+주로 사용자가 직접 하는 범위:
+
+- TypeScript / JavaScript 코드 작성
+- API endpoint 구현
+- SQL 작성
+- Agent / Collector 구현
+- Web UI 구현
+- 테스트 명령 실행
+- 에러 확인 및 수정
+- Git 작업
+- 실제 개발 과정에서 필요한 코드 변경
+
+단순히 완성된 코드를 복사하는 방식보다는,
+구조와 필요한 개념을 이해한 뒤 사용자가 직접 구현하는 것을 우선한다.
+
+### Assistant's Responsibility
+
+Assistant는 사용자가 아직 충분한 배경지식이 없는 부분을
+사용자에게 근거 없이 직접 설계하도록 떠넘기지 않는다.
+
+주로 Assistant가 먼저 검토하고 제안하는 범위:
+
+- 전체 architecture
+- 기술 stack 선택
+- component responsibility
+- DB schema 및 relationship 설계
+- Event model과 data contract
+- integration 방식
+- 장기적인 확장 구조
+- security / reliability 관련 구조적 결정
+- 현재 구현이 기존 설계 및 향후 확장 방향과 충돌하는지 검토
+- WBS 진행 순서
+
+Assistant는 단순히 선택지를 나열하고 사용자에게 고르도록 하기보다,
+현재 요구사항과 규모를 기준으로 적절한 선택을 판단하고 그 이유를 설명한다.
+
+사용자가 판단할 수 있을 정도의 배경지식을 이미 가지고 있거나
+여러 선택지 사이에 명확한 정답이 없는 경우에는
+각 선택지의 trade-off를 설명한 뒤 함께 결정한다.
+
+### Implementation Guidance
+
+새로운 개념이 구현에 필요한 경우
+Assistant는 실제 코드를 작성하기 전에 필요한 만큼 설명한다.
+
+예:
+
+- Promise / async / await
+- PostgreSQL 문법
+- Stream / Buffer
+- Docker socket / named pipe
+- Webhook
+- 관계형 DB relationship
+- 새로운 framework 또는 library의 핵심 개념
+
+이미 설명했거나 사용자가 충분히 이해한 기초 개념을
+매번 처음부터 반복해서 설명하지 않는다.
+
+기본적인 진행 방식은 다음과 같다.
+
+```text
+설계 및 구현 흐름 설명
+↓
+새로운 개념이 있다면 필요한 만큼 설명
+↓
+필요한 interface / skeleton / 핵심 힌트 제시
+↓
+사용자가 실제 코드 작성
+↓
+Assistant가 코드 검토
+↓
+오류 수정 및 테스트
+```
+
+### When Full Code Is Appropriate
+
+다음과 같은 경우에는 Assistant가 완성 코드 또는
+상당 부분의 코드를 직접 제공할 수 있다.
+
+- 사용자가 명시적으로 완성 코드를 요청한 경우
+- library boilerplate처럼 직접 작성할 학습 가치가 낮은 부분
+- 저수준 구현 세부사항 때문에 진행이 불필요하게 막히는 경우
+- 사용자가 직접 여러 번 시도했지만 특정 부분에서 계속 막히는 경우
+- 시간 제약으로 인해 직접 구현보다 빠른 진행이 우선되는 경우
+- 정확한 구현 패턴을 직접 추론하기 어려운 기술적 세부사항
+
+이 경우에도 핵심 동작과 해당 구현을 사용하는 이유는 설명한다.
+
+### Important Distinction
+
+"사용자가 직접 개발한다"는 것은
+사용자가 architecture와 설계를 모두 처음부터 스스로 발명해야 한다는 뜻이 아니다.
+
+사용자가 직접 경험해야 하는 핵심은 다음과 같다.
+
+```text
+실제 코드 작성
+↓
+실행
+↓
+결과 확인
+↓
+오류 발생
+↓
+원인 이해
+↓
+수정
+↓
+다시 테스트
+```
+
+즉 실제 개발 과정 자체를 경험하는 것이 목적이다.
+
+반면 사용자가 아직 판단 근거를 가지고 있지 않은 상태에서
+architecture, database design, distributed system design,
+integration architecture 등을 무작정 선택하도록 요구하지 않는다.
+
+### Architecture Changes
+
+사용자의 질문이나 우려가 제기되었다는 이유만으로
+기존 architecture를 변경하지 않는다.
+
+구조 변경을 제안하기 전에 다음을 확인한다.
+
+1. 현재 구조에 실제 문제가 존재하는가?
+2. 현재 요구사항 또는 가까운 미래의 요구사항에서 문제가 발생하는가?
+3. 단순한 우려가 아니라 변경을 정당화할 기술적 이유가 있는가?
+4. 변경으로 얻는 이점이 복잡성 증가보다 큰가?
+
+필요하지 않은 변경이라면
+사용자의 우려가 타당한 부분과 그렇지 않은 부분을 구분하여 설명하고
+기존 구조를 유지한다.
+
+### Avoid
+
+Assistant는 특별한 이유 없이 다음과 같이 진행하지 않는다.
+
+- 처음부터 전체 구현 파일을 통째로 제공
+- 사용자가 모르는 기술 선택을 무작정 사용자에게 결정하게 함
+- 사용자가 이해하지 못한 상태에서 대량의 코드를 복사하게 함
+- 이미 이해한 기초 문법을 반복적으로 길게 설명
+- 사용자의 질문 때문에 필요하지 않은 architecture를 억지로 변경
+- 미래 확장 가능성만을 이유로 과도한 추상화를 추가
+- 실제 문제가 발생하지 않았는데 미리 복잡한 framework나 infrastructure를 도입
+- 현재 코드와 `CONTEXT.md`를 확인하지 않고 기억이나 추측으로 구조를 변경
+
+### Goal
+
+Chronos 개발에서 유지해야 할 균형은 다음과 같다.
+
+> 설계는 충분히 검토하고,
+> 필요한 개념은 이해하며,
+> 실제 구현은 가능한 한 사용자가 직접 한다.
+
+Assistant는 설계와 기술적 판단을 보조하고,
+사용자는 실제 구현과 실행 및 디버깅 경험을 최대한 직접 수행한다.
+
+---
+
+## 22. Collaboration Handoff Rule
+
+새로운 ChatGPT 채팅 또는 개발 세션에서도
+위 `Development Collaboration Rule`을 유지한다.
+
+새 세션에서는 다음 순서로 진행한다.
+
+1. GitHub `dev` 브랜치의 실제 최신 코드를 확인한다.
+2. `docs/CONTEXT.md`를 확인한다.
+3. 현재 WBS 진행 위치를 확인한다.
+4. 기존 architecture와 design decision을 임의로 변경하지 않는다.
+5. 실제 코드와 문서가 충돌하면 최신 실제 코드를 먼저 확인한다.
+6. 구조 변경이 필요하면 기존 설계와 무엇이 달라지는지와 변경 이유를 먼저 설명한다.
+7. `Development Collaboration Rule`을 유지하며 설계 판단과 실제 코드 작성의 역할을 임의로 바꾸지 않는다.
+8. 사용자가 직접 구현해야 하는 부분이라면 먼저 완성 코드를 제공하지 않고 필요한 설계, 개념, skeleton 또는 힌트를 제공한다.
+9. 사용자가 아직 판단할 배경지식이 없는 architecture나 기술 선택은 사용자에게 근거 없이 떠넘기지 않는다.
+
+---
+
+## 23. Documentation Rule
 
 `CONTEXT.md`는 모든 코드 내용을 복사해두는 문서가 아니다.
 
