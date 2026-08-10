@@ -1,0 +1,39 @@
+{
+    "name": "chronos",
+    "version": "0.1.0",
+    "private": true,
+    "workspaces": [
+        "apps/*",
+        "packages/*"
+    ],
+    "description": "Chronos is a self-hosted incident correlation platform for Docker-based services.",
+    "main": "index.js",
+    "directories": {
+        "doc": "docs"
+    },
+    "scripts": {
+        "test": "echo \"Error: no test specified\" && exit 1"
+    },
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/SF0629/Chronos-demo.git"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "type": "commonjs",
+    "bugs": {
+        "url": "https://github.com/SF0629/Chronos-demo/issues"
+    },
+    "homepage": "https://github.com/SF0629/Chronos-demo#readme",
+    "dependencies": {
+        "dockerode": "^5.0.1",
+        "dotenv": "^17.4.2"
+    },
+    "devDependencies": {
+        "@types/dockerode": "^4.0.1",
+        "@types/node": "^26.2.0",
+        "tsx": "^4.23.11",
+        "typescript": "^6.0.3"
+    }
+}
