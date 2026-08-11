@@ -1,7 +1,11 @@
 import express from "express";
 import { pool } from "./db.js";
 import { createEventSchema } from "./schemas/event.js";
-import { verifyGitHubSignature } from "./github.js";
+import {
+    normalizeGitHubPush,
+    type GitHubPushPayload,
+    verifyGitHubSignature,
+} from "./github.js";
 
 const app = express();
 
@@ -47,6 +51,17 @@ app.post(
 
         if (!deliveryId) {
             return res.status(400).json({ error: "Invalid delivery" });
+        }
+
+        if (eventType === "push") {
+            const event = normalizeGitHubPush(
+                payload as GitHubPushPayload,
+                deliveryId,
+            );
+
+            if (event) {
+                console.log(`github event: ${event}`);
+            }
         }
 
         console.log({ eventType, deliveryId, payload });
