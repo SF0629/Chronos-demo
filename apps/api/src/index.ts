@@ -60,11 +60,10 @@ app.post(
             );
 
             if (event) {
-                console.log(`github event: ${event}`);
+                console.log("github event: ", event);
             }
         }
 
-        console.log({ eventType, deliveryId, payload });
         return res.status(200).json({ status: "success" });
     },
 );

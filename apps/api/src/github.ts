@@ -52,6 +52,12 @@ export function normalizeGitHubPush(
         return;
     }
 
+    if (!payload.ref.startsWith("refs/heads/")) {
+        return;
+    }
+
+    const branch = payload.ref.replace("refs/heads/", "");
+
     const chronosEvent = {
         source: "github",
         type: "github.push",
