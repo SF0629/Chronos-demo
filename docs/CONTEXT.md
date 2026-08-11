@@ -406,13 +406,15 @@ Chronos는 이를 근거로 root cause를 확정하지 않는다.
 현재 구현된 주요 endpoint:
 
 ```text
-GET  /health
+GET  /health
 
-GET  /events
+GET  /events
 
 POST /events
 
-GET  /services/:id/events
+GET  /services/:id/events
+
+POST /webhooks/github
 ```
 
 현재 `POST /events`는:
@@ -430,6 +432,46 @@ RETURNING *
 ```
 
 흐름이다.
+
+GitHub Webhook
+
+현재 POST /webhooks/github는 GitHub Webhook을 직접 수신한다.
+
+처리 흐름:
+
+GitHub Webhook
+↓
+raw request body 수신
+↓
+HMAC-SHA256 signature 검증
+↓
+JSON payload parsing
+↓
+GitHub event / delivery 식별
+
+Webhook secret은 다음 환경변수를 사용한다.
+
+GITHUB_WEBHOOK_SECRET
+
+서명 검증에는 GitHub가 전달하는 다음 헤더를 사용한다.
+
+X-Hub-Signature-256
+
+또한 다음 헤더를 읽어 Webhook 종류와 delivery를 식별한다.
+
+X-GitHub-Event
+X-GitHub-Delivery
+
+현재 실제 GitHub repository Webhook을 통해 다음 Event의 수신을 검증했다.
+
+ping
+push
+
+현재 단계에서는 검증된 GitHub payload를 parsing하고 확인하는 단계까지 구현되어 있다.
+
+GitHub push payload를 Chronos 공통 Event인 github.push로 정규화하고 PostgreSQL에 저장하는 기능은 아직 구현되지 않았다.
+
+이는 다음 WBS에서 진행한다.
 
 ---
 
@@ -551,6 +593,8 @@ Chronos API로 전송하는 기능은 아직 구현되지 않았다.
 - 2.1 Docker Events experiment
 - 2.2 Docker Agent MVP
 - 2.3 Docker reconnect / error handling
+
+- 3.1 GitHub Webhook endpoint
 
 다음 작업은 WBS의 다음 미완료 항목을 기준으로 진행한다.
 
