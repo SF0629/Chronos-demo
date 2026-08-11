@@ -61,7 +61,7 @@ export function normalizeGitHubPush(
     const chronosEvent = {
         source: "github",
         type: "github.push",
-        title: `${payload.repository.full_name} ${payload.ref} branch pushed`,
+        title: `${payload.repository.full_name} ${branch} branch pushed`,
         occurredAt: payload.head_commit.timestamp,
         sourceEventId: deliveryId,
         metadata: {
