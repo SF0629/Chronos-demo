@@ -6,13 +6,14 @@ import {
     type GitHubPushPayload,
     verifyGitHubSignature,
 } from "./github.js";
+import { resolveServiceBinding } from "./bindings.js";
 
 const app = express();
 
 app.post(
     "/webhooks/github",
     express.raw({ type: "application/json" }),
-    (req, res) => {
+    async (req, res) => {
         const secret = process.env.GITHUB_WEBHOOK_SECRET;
         const signature = req.get("x-hub-signature-256");
 
@@ -54,9 +55,25 @@ app.post(
         }
 
         if (eventType === "push") {
+            const githubPush = payload as GitHubPushPayload;
+
+            const serviceId = await resolveServiceBinding(
+                "github",
+                "repository",
+                githubPush.repository.full_name,
+            );
+
+            if (!serviceId) {
+                console.log(
+                    `[github] no service binding for repository: ${githubPush.repository.full_name}`,
+                );
+                return res.status(200).json();
+            }
+
             const event = normalizeGitHubPush(
-                payload as GitHubPushPayload,
+                githubPush,
                 deliveryId,
+                serviceId,
             );
 
             if (event) {

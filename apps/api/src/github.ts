@@ -47,6 +47,7 @@ export function verifyGitHubSignature(
 export function normalizeGitHubPush(
     payload: GitHubPushPayload,
     deliveryId: string,
+    serviceId: string,
 ) {
     if (!payload.head_commit) {
         return;
@@ -59,6 +60,7 @@ export function normalizeGitHubPush(
     const branch = payload.ref.replace("refs/heads/", "");
 
     const chronosEvent = {
+        serviceId,
         source: "github",
         type: "github.push",
         title: `${payload.repository.full_name} ${branch} branch pushed`,
