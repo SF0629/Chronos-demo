@@ -243,7 +243,90 @@ Worker는 위 내용을 확인하지 않은 상태에서
 
 ---
 
-## 9. Worker Completion Report
+## 9. WBS Assignment Rule
+
+Worker는 전체 WBS를 직접 확인할 수 있다고 가정하지 않는다.
+
+따라서 Worker가 현재 완료된 작업을 기준으로
+다음 WBS가 무엇인지 스스로 추측해서는 안 된다.
+
+다음 작업은 항상 Supervisor가 명시적으로 지정한다.
+
+Supervisor가 Worker에게 작업을 위임할 때는 최소한 다음 정보를 제공한다.
+
+- 정확한 WBS 번호
+- 정확한 작업명
+- 이번 작업의 목적
+- 작업 범위
+- 완료 조건
+- 범위 밖 항목
+
+Worker 작업 지시는 다음 형식을 기본으로 한다.
+
+**WBS**
+
+`<번호> <작업명>`
+
+**Goal**
+
+`<이번 작업의 목적>`
+
+**Scope**
+
+- ...
+- ...
+
+**Completion Criteria**
+
+- ...
+- ...
+
+**Out of Scope**
+
+- ...
+- ...
+
+Worker는 지정된 WBS 범위만 수행한다.
+
+지정된 작업을 완료했다고 판단해도
+다음 WBS를 스스로 선택하거나 이어서 진행하지 않는다.
+
+작업 완료 후에는 Completion Report를 작성하고
+Supervisor review를 기다린다.
+
+Supervisor는 Worker의 보고서와 실제 GitHub commit / diff를 검토한 뒤
+WBS 완료 여부를 판정한다.
+
+WBS 완료가 승인된 뒤에만
+Supervisor가 기존 WBS를 기준으로 다음 작업을 다시 명시적으로 할당한다.
+
+Worker에게 단순히
+`다음 WBS를 진행해라`
+라고만 지시하지 않는다.
+
+전체 WBS의 다음 항목을 Supervisor가 정확히 확인할 수 없다면
+다음 작업을 임의로 만들어내지 않는다.
+
+이 경우 사용자에게 기존 WBS의 다음 항목을 확인받은 뒤
+Worker 작업 지시를 작성한다.
+
+`STATUS.md`는 전체 WBS의 대체물이 아니다.
+
+`STATUS.md`에는 현재 상태를 빠르게 파악할 수 있도록
+가능하면 다음 정보를 유지한다.
+
+- 마지막으로 Supervisor가 완료 승인한 WBS
+- 현재 Worker에게 할당된 WBS
+- 현재 진행 상태
+- 현재 known limitation
+- 다음 Supervisor action
+
+Worker는 `STATUS.md`만 보고
+전체 WBS의 다음 작업을 스스로 결정하지 않는다.
+
+---
+
+## 10. Worker Completion Report
 
 작업을 완료하면 Worker는 다음 보고서를 작성한다.
 
@@ -296,7 +379,7 @@ Supervisor는 보고서만 신뢰하지 않고
 
 ---
 
-## 10. Git Workflow
+## 11. Git Workflow
 
 현재 기본 branch 역할:
 
@@ -332,7 +415,7 @@ Supervisor review를 먼저 요청한다.
 
 ---
 
-## 11. Documentation Ownership
+## 12. Documentation Ownership
 
 문서별 책임은 다음과 같다.
 
@@ -367,7 +450,7 @@ Supervisor / Worker 운영 방식과
 
 ---
 
-## 12. Specialist Worker / Codex
+## 13. Specialist Worker / Codex
 
 Codex는 필요할 때 사용하는 Specialist Worker로 취급한다.
 
@@ -395,7 +478,7 @@ Codex도 architecture 변경이 필요하다고 판단하면
 
 ---
 
-## 13. Supervisor Replacement
+## 14. Supervisor Replacement
 
 현재 Supervisor 채팅의 context가 길어져
 새 채팅으로 교체해야 하는 것은 정상적인 상황으로 취급한다.
@@ -423,7 +506,7 @@ WBS
 
 ---
 
-## 14. Core Principle
+## 15. Core Principle
 
 Chronos 개발에서 AI 역할 분리의 목적은 다음과 같다.
 
