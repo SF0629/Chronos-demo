@@ -102,11 +102,11 @@ v0.1에서는 ORM을 사용하지 않는다.
 ```text
 Chronos-demo/
 ├─ apps/
-│  ├─ web/
-│  ├─ api/
-│  └─ agent/
+│  ├─ web/
+│  ├─ api/
+│  └─ agent/
 ├─ packages/
-│  └─ shared/        # 공통 계약이 필요해질 때 사용
+│  └─ shared/        # 공통 계약이 필요해질 때 사용
 ├─ infra/
 ├─ docs/
 ├─ package.json
@@ -161,7 +161,7 @@ PostgreSQL 접근은 API가 담당한다.
 
 `apps/agent`는 Docker 전용 Agent가 아니다.
 
-\***\*Chronos Host Agent\*\***이다.
+**Chronos Host Agent**이다.
 
 Chronos 서버가 원격에서 직접 접근하기 어려운
 사용자 Host 내부 정보를 수집하고 Chronos API로 전달한다.
@@ -250,15 +250,15 @@ Chronos 공통 Event 모델로 정규화한다.
 
 ```text
 Event
-id              UUID
-serviceId       UUID
-source          EventSource
-type            string
-title           string
-occurredAt      timestamp
-receivedAt      timestamp
-sourceEventId   string | null
-metadata        JSON
+id              UUID
+serviceId       UUID
+source          EventSource
+type            string
+title           string
+occurredAt      timestamp
+receivedAt      timestamp
+sourceEventId   string | null
+metadata        JSON
 ```
 
 예:
@@ -361,6 +361,7 @@ services
 events
 incidents
 incident_events
+service_source_bindings
 ```
 
 ### Relationship
@@ -371,12 +372,25 @@ Service 1 ─── N Event
 Service 1 ─── N Incident
 
 Incident N ─── M Event
-             │
-             └─ incident_events
+             │
+             └─ incident_events
 ```
 
 `incident_events.score`는 Event 자체의 속성이 아니라
 Incident와 Event 사이 관계의 속성이다.
+
+`service_source_bindings`는 외부 Resource identifier를 통해
+Chronos Service를 찾아야 하는 Source에서 사용하는 최소 mapping이다.
+
+현재 contract:
+
+```text
+(source, resource_type, external_id)
+→ service_id
+```
+
+모든 Source가 이 table을 사용하도록 강제하지 않는다.
+Docker는 `chronos.service_id` label을 통해 직접 `serviceId`를 얻는다.
 
 ---
 
@@ -424,6 +438,8 @@ HTTP Request
 ↓
 Zod validation
 ↓
+createEvent()
+↓
 Parameterized SQL
 ↓
 events INSERT
@@ -433,12 +449,30 @@ RETURNING *
 
 흐름이다.
 
-GitHub Webhook
+Event INSERT 로직은 `apps/api/src/events.ts`의
+`createEvent()`로 최소 범위에서 공통화되어 있다.
 
-현재 POST /webhooks/github는 GitHub Webhook을 직접 수신한다.
+현재 Event producer는 같은 persistence 경로를 사용한다.
+
+```text
+POST /events
+→ Zod validation
+→ createEvent()
+→ PostgreSQL
+
+GitHub Webhook
+→ GitHub-specific validation / mapping / normalization
+→ createEvent()
+→ PostgreSQL
+```
+
+### GitHub Webhook
+
+현재 `POST /webhooks/github`는 GitHub Webhook을 직접 수신한다.
 
 처리 흐름:
 
+```text
 GitHub Webhook
 ↓
 raw request body 수신
@@ -448,30 +482,59 @@ HMAC-SHA256 signature 검증
 JSON payload parsing
 ↓
 GitHub event / delivery 식별
+↓
+repository.full_name으로 Service binding 조회
+↓
+serviceId 결정
+↓
+GitHub push → github.push Chronos Event normalization
+↓
+createEvent()
+↓
+PostgreSQL events
+```
 
 Webhook secret은 다음 환경변수를 사용한다.
 
+```text
 GITHUB_WEBHOOK_SECRET
+```
 
 서명 검증에는 GitHub가 전달하는 다음 헤더를 사용한다.
 
+```text
 X-Hub-Signature-256
+```
 
 또한 다음 헤더를 읽어 Webhook 종류와 delivery를 식별한다.
 
+```text
 X-GitHub-Event
 X-GitHub-Delivery
+```
 
 현재 실제 GitHub repository Webhook을 통해 다음 Event의 수신을 검증했다.
 
+```text
 ping
 push
+```
 
-현재 단계에서는 검증된 GitHub payload를 parsing하고 확인하는 단계까지 구현되어 있다.
+GitHub push payload는 Chronos 공통 Event인 `github.push`로 정규화되고,
+실제 Webhook redelivery를 통해 PostgreSQL `events` 테이블에 저장되는 것까지 검증했다.
 
-GitHub push payload를 Chronos 공통 Event인 github.push로 정규화하고 PostgreSQL에 저장하는 기능은 아직 구현되지 않았다.
+GitHub repository → Chronos Service mapping은
+`service_source_bindings`를 사용한다.
 
-이는 다음 WBS에서 진행한다.
+GitHub repository의 현재 lookup은 다음과 같다.
+
+```text
+source        = github
+resource_type = repository
+external_id   = repository.full_name
+```
+
+binding이 없는 repository는 Event로 저장하지 않고 정상 Webhook 응답으로 처리한다.
 
 ---
 
@@ -595,6 +658,7 @@ Chronos API로 전송하는 기능은 아직 구현되지 않았다.
 - 2.3 Docker reconnect / error handling
 
 - 3.1 GitHub Webhook endpoint
+- 3.2 GitHub push Event 처리
 
 다음 작업은 WBS의 다음 미완료 항목을 기준으로 진행한다.
 
@@ -642,13 +706,17 @@ Source 고유 데이터는 `metadata`에 저장한다.
 
 현재 규모에서는 단순한 구조를 유지한다.
 
-현재:
+현재 API의 주요 파일:
 
 ```text
 apps/api/src/
 ├─ index.ts
 ├─ db.ts
+├─ events.ts
+├─ github.ts
+├─ bindings.ts
 └─ schemas/
+   └─ event.ts
 
 apps/agent/src/
 ├─ index.ts
@@ -675,11 +743,11 @@ Host-local Collector가 여러 개 생길 경우:
 agent/src/
 ├─ index.ts
 ├─ collectors/
-│  ├─ docker.ts
-│  ├─ systemd.ts
-│  └─ system.ts
+│  ├─ docker.ts
+│  ├─ systemd.ts
+│  └─ system.ts
 └─ client/
-   └─ chronos.ts
+   └─ chronos.ts
 ```
 
 형태를 고려한다.
@@ -691,7 +759,8 @@ agent/src/
 
 ## API Growth
 
-현재는 endpoint와 DB 처리가 `index.ts`에 일부 함께 존재한다.
+현재는 endpoint와 일부 orchestration이 `index.ts`에 존재하고,
+Event persistence처럼 실제 중복 책임이 발생한 부분만 최소 범위로 분리되어 있다.
 
 기능이 늘어나면 다음 형태를 고려한다.
 
@@ -701,19 +770,19 @@ apps/api/src/
 ├─ db.ts
 │
 ├─ routes/
-│  ├─ events.ts
-│  ├─ incidents.ts
-│  └─ webhooks/
-│     └─ github.ts
+│  ├─ events.ts
+│  ├─ incidents.ts
+│  └─ webhooks/
+│     └─ github.ts
 │
 ├─ services/
-│  ├─ events.ts
-│  ├─ incidents.ts
-│  └─ correlation.ts
+│  ├─ events.ts
+│  ├─ incidents.ts
+│  └─ correlation.ts
 │
 ├─ integrations/
-│  ├─ prometheus.ts
-│  └─ discord.ts
+│  ├─ prometheus.ts
+│  └─ discord.ts
 │
 └─ schemas/
 ```
@@ -726,29 +795,35 @@ apps/api/src/
 
 ## Event Service
 
-현재 `POST /events`가 Event validation과 DB INSERT를 직접 담당한다.
+GitHub Webhook이 두 번째 Event producer로 추가되면서
+Event INSERT 로직은 `apps/api/src/events.ts`의 `createEvent()`로
+최소 범위에서 공통화되었다.
 
-GitHub Webhook처럼 두 번째 Event producer가 추가될 때:
+현재:
 
 ```text
 Agent POST /events ─────┐
-                        ▼
-                   Event Service
-                        │
-                        ▼
-                     events DB
-                        ▲
-                        │
+                        ▼
+                   createEvent()
+                        │
+                        ▼
+                     events DB
+                        ▲
+                        │
 GitHub Webhook ─────────┘
 ```
 
-형태로 Event 생성 로직을 공통 service로 분리하는 것을 우선 고려한다.
+`POST /events`의 HTTP/Zod validation은 route 경계에 남아 있고,
+GitHub Webhook은 GitHub-specific 검증, Service mapping, normalization 후
+동일한 `createEvent()` persistence 함수를 사용한다.
 
 목적:
 
 - INSERT 로직 중복 방지
-- validation / deduplication 정책 통합
-- Event producer 증가에 따른 충돌 방지
+- Event persistence 책임을 API에 유지
+- Event producer 증가에 따른 persistence 충돌 방지
+
+현재 deduplication 정책은 기존대로 DB UNIQUE constraint를 강제하지 않는다.
 
 ---
 
@@ -767,7 +842,7 @@ GitHub Webhook ─────────┘
 ```text
 packages/shared/
 └─ src/
-   └─ events.ts
+   └─ events.ts
 ```
 
 현재 중복이 작다면 미리 추상화하지 않는다.
