@@ -1,4 +1,5 @@
 import Docker from "dockerode";
+import { sendEvent } from "./chronos.js";
 
 const docker = new Docker({
     socketPath: "//./pipe/docker_engine",
@@ -103,7 +104,7 @@ export async function startDockerCollector() {
                     },
                 };
 
-                console.log(chronosEvent);
+                void sendEvent(chronosEvent);
             }
         });
 
