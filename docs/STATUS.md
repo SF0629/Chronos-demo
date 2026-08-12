@@ -11,14 +11,14 @@
 ## Current WBS
 
 - 3.1 GitHub Webhook endpoint — 완료
-- 3.2 GitHub push Event 처리 — 진행 중
+- 3.2 GitHub push Event 처리 — 완료
 
 ---
 
 ## Current Development Focus
 
-현재 작업의 목표는 GitHub push Webhook을
-Chronos 공통 Event로 변환하고 실제 Event ingestion 흐름에 연결하는 것이다.
+WBS 3.2의 목표였던 GitHub push Webhook의 Common Event 변환과
+실제 Event persistence 연결까지 완료했다.
 
 현재 처리 흐름:
 
@@ -39,20 +39,13 @@ serviceId 결정
 ↓
 GitHub push → Chronos Event normalization
 ↓
-현재 console output
-```
-
-아직 완료되지 않은 부분:
-
-```text
-Normalized GitHub Event
-↓
-Event persistence
+공통 createEvent()
 ↓
 PostgreSQL events
 ```
 
-따라서 3.2는 아직 완료 상태가 아니다.
+실제 GitHub push Webhook redelivery를 통해
+`github.push` Event가 PostgreSQL `events` 테이블에 저장되는 것까지 검증했다.
 
 ---
 
@@ -72,6 +65,8 @@ PostgreSQL events
 - GitHub push Event normalization
 - repository → Chronos Service mapping
 - binding이 없는 repository 처리
+- normalized GitHub Event persistence
+- 실제 `github.push` → PostgreSQL 저장 검증
 
 ### Current Service Mapping
 
@@ -167,6 +162,29 @@ monorepo 지원이 해결된다고 가정하지 않는다.
 
 ---
 
+## Event Persistence State
+
+Event INSERT 로직은 `apps/api/src/events.ts`의
+`createEvent()`로 최소 범위에서 공통화되어 있다.
+
+현재 producer 흐름:
+
+```text
+POST /events
+→ Zod validation
+→ createEvent()
+→ PostgreSQL
+
+GitHub Webhook
+→ GitHub-specific validation / mapping / normalization
+→ createEvent()
+→ PostgreSQL
+```
+
+Event persistence는 계속 Chronos API의 중앙 책임으로 유지한다.
+
+---
+
 ## Docker Agent State
 
 현재 Docker Agent:
@@ -234,24 +252,9 @@ downstream logic에 노출되지 않도록 한다.
 
 ## Next Work
 
-현재 3.2에서 다음으로 확인해야 하는 것은:
+WBS 3.2는 완료되었다.
 
-```text
-Normalized GitHub Event
-↓
-공통 Event persistence
-↓
-events table
-```
-
-이다.
-
-이 과정에서 기존 `POST /events`의 Event INSERT 로직과
-GitHub Webhook 처리 로직이 중복될 가능성이 있다.
-
-두 번째 Event producer가 실제로 등장한 상태이므로,
-Event persistence 로직을 공통 service로 분리할 필요가 있는지
-구현 전에 검토한다.
+다음 작업은 기존 WBS의 다음 미완료 항목을 기준으로 진행한다.
 
 불필요한 전체 API restructuring은 하지 않는다.
 
