@@ -309,21 +309,14 @@ PostgreSQL에 직접 접근하지 않는다.
 
 ### Current Situation
 
-현재 Event producer는 다음 두 경로로 증가하고 있다.
+GitHub가 두 번째 Event producer로 추가되면서
+Event persistence 로직은 apps/api/src/events.ts의 createEvent()로
+최소 범위에서 공통화되었다.
 
-```text
-Agent
-→ POST /events
+POST /events와 GitHub Webhook은 동일한 createEvent()를 사용한다.
 
-GitHub Webhook
-→ GitHub normalized Event
-```
-
-현재 `POST /events` 안에 Event INSERT 로직이 존재한다.
-
-GitHub Event를 실제 DB에 저장하는 단계에서
-INSERT 로직이 중복되기 시작하면
-공통 Event service 추출을 우선 검토한다.
+이 변경은 API의 Event persistence 책임을 유지한 채
+INSERT 중복만 제거한 기존 구조 내 refactoring이다.
 
 ### Constraint
 

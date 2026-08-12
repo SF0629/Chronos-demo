@@ -903,7 +903,7 @@ implementation
 ↓
 test
 ↓
-CONTEXT.md 필요 시 갱신
+STATUS / DECISIONS / CONTEXT 필요 시 갱신
 ↓
 commit
 ↓
