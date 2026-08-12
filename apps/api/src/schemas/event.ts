@@ -9,3 +9,5 @@ export const createEventSchema = z.object({
     sourceEventId: z.string().max(255).nullable().optional(),
     metadata: z.record(z.string(), z.unknown()).optional(),
 });
+
+export type CreateEvent = z.infer<typeof createEventSchema>;

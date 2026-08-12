@@ -7,6 +7,7 @@ import {
     verifyGitHubSignature,
 } from "./github.js";
 import { resolveServiceBinding } from "./bindings.js";
+import { createEvent } from "./events.js";
 
 const app = express();
 
@@ -77,7 +78,9 @@ app.post(
             );
 
             if (event) {
-                console.log("github event: ", event);
+                const savedEvent = await createEvent(event);
+
+                console.log("github event: ", savedEvent);
             }
         }
 
@@ -114,32 +117,9 @@ app.post("/events", async (req, res) => {
         });
     }
 
-    const event = parsed.data;
+    const result = await createEvent(parsed.data);
 
-    const result = await pool.query(
-        `INSERT INTO events (
-            service_id,
-            source,
-            type,
-            title,
-            occurred_at,
-            source_event_id,
-            metadata
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
-        RETURNING *;`,
-        [
-            event.serviceId,
-            event.source,
-            event.type,
-            event.title,
-            event.occurredAt,
-            event.sourceEventId ?? null,
-            event.metadata ?? {},
-        ],
-    );
-
-    return res.status(201).json(result.rows[0]);
+    return res.status(201).json(result);
 });
 
 app.get("/services/:id/events", async (req, res) => {
