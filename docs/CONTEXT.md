@@ -545,7 +545,8 @@ binding이 없는 repository는 Event로 저장하지 않고 정상 Webhook 응�
 ```text
 apps/agent/src/
 ├─ index.ts
-└─ docker.ts
+├─ docker.ts
+└─ chronos.ts
 ```
 
 ### index.ts
@@ -565,6 +566,7 @@ Docker Collector를 시작한다.
 - container event 처리
 - Docker raw Event parsing
 - Chronos Event normalization
+- normalized Event를 `sendEvent()`에 전달
 
 현재 처리하는 Action:
 
@@ -609,7 +611,45 @@ chunk 하나를 JSON 하나라고 가정하지 않는다.
 잘못된 JSON 하나 때문에 Agent 전체가 종료되지 않도록
 해당 record만 무시한다.
 
-### Reconnection
+### chronos.ts
+
+Chronos Host Agent가 정규화된 Event를
+Chronos API로 전달하는 최소 API client다.
+
+현재 API URL은 다음 환경변수를 사용한다.
+
+```text
+CHRONOS_API_URL
+```
+
+기본값:
+
+```text
+http://localhost:4000
+```
+
+현재 Docker Event ingestion 흐름:
+
+```text
+Docker Event
+↓
+Docker Collector
+↓
+Chronos Event normalization
+↓
+sendEvent()
+↓
+POST /events
+↓
+createEvent()
+↓
+PostgreSQL events
+```
+
+실제 Docker Event가 이 경로를 통해
+PostgreSQL `events` 테이블에 저장되는 것을 검증했다.
+
+### Docker Engine Reconnection
 
 Docker 연결 실패 또는 stream 종료 시:
 
@@ -627,16 +667,35 @@ Docker Engine이 다시 시작되면 Agent는 event stream을 자동 복구한�
 
 현재 v0.1에서는 exponential backoff를 구현하지 않는다.
 
-### Current Limitation
+실제 Docker Engine 중단 상태에서 reconnect가 반복되고,
+Engine 복구 후 stream이 다시 연결되며
+이후 Event가 Chronos API로 정상 전송되는 것을 검증했다.
 
-현재 Docker Agent는 Docker Event를 Chronos 공통 Event 형태로
-정규화하여 console에 출력하는 단계까지 구현되어 있다.
+### API Delivery Retry
 
-Agent가 정규화된 Event를 `POST /events`를 통해
-Chronos API로 전송하는 기능은 아직 구현되지 않았다.
+`sendEvent()`는 Chronos API가 일시적으로 사용할 수 없는 경우
+bounded retry를 수행한다.
 
-따라서 현재 Docker → Agent → API → PostgreSQL 전체 ingestion pipeline은
-완성된 상태가 아니다.
+현재 설정:
+
+```text
+MAX_RETRIES = 2
+RETRY_DELAY_MS = 1000
+```
+
+최초 요청을 포함해 최대 3회 전송을 시도하며,
+retry 사이에는 fixed 1000ms delay를 사용한다.
+
+모든 API delivery retry가 실패해도
+Agent process와 Docker Event stream은 종료되지 않는다.
+
+API 복구 후 동일 Agent process에서
+이후 새 Docker Event가 정상적으로 다시 전송되는 것을 검증했다.
+
+Docker Engine reconnect와 API delivery retry는
+서로 독립된 책임으로 유지한다.
+
+현재 persistent local queue나 disk-backed buffering은 구현하지 않는다.
 
 ---
 
@@ -660,7 +719,8 @@ Chronos API로 전송하는 기능은 아직 구현되지 않았다.
 - 3.1 GitHub Webhook endpoint
 - 3.2 GitHub push Event 처리
 
-다음 작업은 WBS의 다음 미완료 항목을 기준으로 진행한다.
+다음 작업은 Worker가 임의로 추측하지 않는다.
+Supervisor가 기존 WBS를 확인한 뒤 명시적으로 지정한다.
 
 ---
 
@@ -720,7 +780,8 @@ apps/api/src/
 
 apps/agent/src/
 ├─ index.ts
-└─ docker.ts
+├─ docker.ts
+└─ chronos.ts
 ```
 
 규모가 실제로 커질 경우 점진적으로 분리한다.
@@ -734,7 +795,8 @@ apps/agent/src/
 ```text
 agent/src/
 ├─ index.ts
-└─ docker.ts
+├─ docker.ts
+└─ chronos.ts
 ```
 
 Host-local Collector가 여러 개 생길 경우:
@@ -752,7 +814,9 @@ agent/src/
 
 형태를 고려한다.
 
-하지만 Docker Collector 하나뿐인 현재 시점에서는
+현재 `chronos.ts`는 API delivery 책임을 담당하지만,
+Docker Collector 하나뿐인 현재 시점에서는
+이를 `client/chronos.ts`로 이동하거나
 필요 이상의 폴더 계층을 만들지 않는다.
 
 ---

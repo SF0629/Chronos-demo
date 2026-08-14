@@ -10,17 +10,37 @@
 
 ## Current WBS
 
+### Confirmed Complete
+
+- 2.2 Docker Agent MVP — 완료
+- 2.3 Agent 재연결 / 예외 처리 — 완료
 - 3.1 GitHub Webhook endpoint — 완료
 - 3.2 GitHub push Event 처리 — 완료
+
+### Current Assigned
+
+- 없음
+
+다음 WBS는 Worker가 임의로 추측하지 않는다.
+Supervisor가 기존 WBS를 확인한 뒤 명시적으로 지정한다.
 
 ---
 
 ## Current Development Focus
 
-WBS 3.2의 목표였던 GitHub push Webhook의 Common Event 변환과
-실제 Event persistence 연결까지 완료했다.
+Supervisor가 확인한 현재 완료 상태:
 
-현재 처리 흐름:
+- WBS 2.2 Docker Agent MVP
+- WBS 2.3 Agent 재연결 / 예외 처리
+- WBS 3.1 GitHub Webhook endpoint
+- WBS 3.2 GitHub push Event 처리
+
+Docker Event와 GitHub push Event 모두
+Chronos Common Event로 정규화된 뒤
+Chronos API의 Event persistence 경로를 통해
+PostgreSQL `events` 테이블에 저장되는 것을 검증했다.
+
+GitHub 처리 흐름:
 
 ```text
 GitHub Webhook
@@ -196,7 +216,13 @@ Docker Collector
 ↓
 Chronos Event normalization
 ↓
-console output
+sendEvent()
+↓
+POST /events
+↓
+createEvent()
+↓
+PostgreSQL events
 ```
 
 구현 완료:
@@ -207,10 +233,57 @@ console output
 - Event normalization
 - `timeNano` 기반 timestamp
 - invalid JSON isolation
-- reconnect
+- Docker Engine stream reconnect
 - Docker Engine 재시작 후 stream 복구
+- `sendEvent()`를 통한 Chronos API Event 전달
+- `CHRONOS_API_URL` 기반 API endpoint 설정
+- Chronos API delivery bounded retry
+- API 전송 실패 시 Agent process 유지
+- API 복구 후 이후 새 Event 전송 정상화
+- Docker → Agent → API → PostgreSQL ingestion pipeline 완료
 
-아직 Agent → API Event 전송은 구현되지 않았다.
+Chronos API URL은 다음 환경변수를 사용한다.
+
+```text
+CHRONOS_API_URL
+```
+
+기본값:
+
+```text
+http://localhost:4000
+```
+
+API Event delivery는 bounded retry를 사용한다.
+
+현재 설정:
+
+```text
+MAX_RETRIES = 2
+RETRY_DELAY_MS = 1000
+```
+
+최초 요청을 포함해 최대 3회 전송을 시도하며,
+retry 사이에는 fixed 1000ms delay를 사용한다.
+
+모든 API delivery retry가 실패해도
+Agent process와 Docker Event stream은 종료되지 않는다.
+
+API 복구 후 동일 Agent process에서
+이후 새 Docker Event가 정상적으로 다시 전송되는 것을 검증했다.
+
+Docker Engine 연결 실패 또는 stream 종료 시에는
+기존 fixed 3000ms reconnect를 유지한다.
+
+Docker Engine 중단 상태에서 reconnect가 반복되고,
+Docker Engine 복구 후 event stream이 다시 연결되며,
+이후 Event가 Chronos API로 정상 전송되는 것을 검증했다.
+
+Docker Engine reconnect와 Chronos API delivery retry는
+서로 별개의 책임으로 유지한다.
+
+현재 persistent local queue 또는 disk-backed buffering은
+구현하지 않는다.
 
 ---
 
@@ -252,9 +325,10 @@ downstream logic에 노출되지 않도록 한다.
 
 ## Next Work
 
-WBS 3.2는 완료되었다.
+현재 Worker에게 할당된 다음 WBS는 없다.
 
-다음 작업은 기존 WBS의 다음 미완료 항목을 기준으로 진행한다.
+다음 WBS는 Worker가 임의로 추측하지 않는다.
+Supervisor가 기존 WBS를 확인한 뒤 명시적으로 지정한다.
 
 불필요한 전체 API restructuring은 하지 않는다.
 
