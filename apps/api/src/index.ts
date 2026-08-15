@@ -8,8 +8,41 @@ import {
 } from "./github.js";
 import { resolveServiceBinding } from "./bindings.js";
 import { createEvent } from "./events.js";
+import { httpRequestDurationSeconds, httpRequestsTotal } from "./metrics.js";
+import { register } from "prom-client";
 
 const app = express();
+
+app.use((req, res, next) => {
+    if (req.path === "/metrics") {
+        return next();
+    }
+
+    const startedAt = process.hrtime.bigint();
+
+    res.on("finish", () => {
+        const method = req.method;
+        const statusCode = String(res.statusCode);
+
+        httpRequestsTotal.inc({
+            method,
+            status_code: statusCode,
+        });
+
+        const durationSeconds =
+            Number(process.hrtime.bigint() - startedAt) / 1_000_000_000;
+
+        httpRequestDurationSeconds.observe(
+            {
+                method,
+                status_code: statusCode,
+            },
+            durationSeconds,
+        );
+    });
+
+    next();
+});
 
 app.post(
     "/webhooks/github",
@@ -89,6 +122,11 @@ app.post(
 );
 
 app.use(express.json());
+
+app.get("/metrics", async (req, res) => {
+    res.set("Content-Type", register.contentType);
+    res.end(await register.metrics());
+});
 
 app.get("/health", async (req, res) => {
     await pool.query("SELECT 1;");
