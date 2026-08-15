@@ -9,6 +9,10 @@ import {
 import { resolveServiceBinding } from "./bindings.js";
 import { createEvent } from "./events.js";
 import { httpRequestDurationSeconds, httpRequestsTotal } from "./metrics.js";
+import {
+    PrometheusClientError,
+    queryPrometheusRange,
+} from "./prometheus.js";
 import { register } from "prom-client";
 
 const app = express();
@@ -126,6 +130,67 @@ app.use(express.json());
 app.get("/metrics", async (req, res) => {
     res.set("Content-Type", register.contentType);
     res.end(await register.metrics());
+});
+
+app.get("/metrics/query-range", async (req, res) => {
+    const query =
+        typeof req.query.query === "string"
+            ? req.query.query.trim()
+            : "";
+
+    const start =
+        typeof req.query.start === "string"
+            ? req.query.start.trim()
+            : "";
+
+    const end =
+        typeof req.query.end === "string"
+            ? req.query.end.trim()
+            : "";
+
+    const step =
+        typeof req.query.step === "string"
+            ? req.query.step.trim()
+            : "";
+
+    if (!query || !start || !end || !step) {
+        return res.status(400).json({
+            error: "query, start, end, and step are required",
+        });
+    }
+
+    try {
+        const data = await queryPrometheusRange({
+            query,
+            start,
+            end,
+            step,
+        });
+
+        return res.json({
+            query,
+            start,
+            end,
+            step,
+            resultType: data.resultType,
+            series: data.result,
+        });
+    } catch (error) {
+        if (error instanceof PrometheusClientError) {
+            return res.status(error.statusCode).json({
+                error: error.message,
+                ...(error.errorType
+                    ? { errorType: error.errorType }
+                    : {}),
+            });
+        }
+
+        console.error("[prometheus] unexpected query_range error", error);
+
+        return res.status(502).json({
+            error: "Prometheus query failed",
+        });
+    }
 });
 
 app.get("/health", async (req, res) => {

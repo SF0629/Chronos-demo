@@ -18,6 +18,7 @@
 - 3.2 GitHub push Event 처리 — 완료
 - 4.1 Prometheus 기본 학습 및 실행 — 완료
 - 4.2 Demo metric 노출 — 완료
+- 4.3 Prometheus HTTP API 연동 — 완료
 
 ### Current Assigned
 
@@ -38,6 +39,7 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 3.2 GitHub push Event 처리
 - WBS 4.1 Prometheus 기본 학습 및 실행
 - WBS 4.2 Demo metric 노출
+- WBS 4.3 Prometheus HTTP API 연동
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤
@@ -61,6 +63,47 @@ WBS 4.2에서 Chronos API application metric 수집 경로를 추가했다.
 - Prometheus `chronos-api` job이 Chronos API를 scrape
 - `chronos-api` target state UP 검증
 - 최소 2개 application metric PromQL 조회 검증
+
+WBS 4.3에서 Chronos API → Prometheus query 경로를 구현했다.
+
+```text
+Chronos API
+↓ GET /metrics/query-range
+Prometheus client
+↓ GET /api/v1/query_range
+Prometheus
+↓ matrix range data
+Chronos API response
+```
+
+Chronos API endpoint:
+
+- `GET /metrics/query-range`
+
+query parameters:
+
+- `query`
+- `start`
+- `end`
+- `step`
+
+Prometheus URL 설정:
+
+- env: `PROMETHEUS_URL`
+- default: `http://localhost:9090`
+
+검증 완료:
+
+- `chronos_http_requests_total` range query
+- 서로 다른 `start` / `end` 범위 적용
+- matrix result parsing
+- metric labels 보존
+- timestamp/value samples 보존
+- 필수 parameter 누락 → HTTP 400
+- invalid PromQL → HTTP 400
+- Prometheus network failure → HTTP 502
+- upstream failure 후 API process 유지
+- 기존 `GET /metrics` regression 없음
 
 GitHub 처리 흐름:
 
@@ -349,13 +392,47 @@ infra/prometheus.yml
   - type: Histogram
   - labels: `method`, `status_code`
 
-검증된 PromQL:
+metric collection 흐름:
+
+```text
+Prometheus
+↓ scrape GET /metrics
+Chronos API
+```
+
+WBS 4.3에서 구현된 query 흐름:
+
+```text
+Chronos API
+↓ Prometheus HTTP API query
+Prometheus
+```
+
+두 흐름은 서로 다른 역할이며 scrape 방향과 query 방향을 혼동하지 않는다.
+
+Prometheus query endpoint:
+
+- Chronos API: `GET /metrics/query-range`
+- Prometheus upstream: `GET /api/v1/query_range`
+- env: `PROMETHEUS_URL`
+- default: `http://localhost:9090`
+
+검증된 PromQL 및 query 상태:
 
 - `up`
 - `up{job="prometheus"}`
 - `up{job="chronos-api"}` = 1
 - `chronos_http_requests_total`
 - `chronos_http_request_duration_seconds_count`
+- `chronos_http_requests_total` range query
+- 서로 다른 `start` / `end` 범위 조회
+- matrix result parsing
+- metric labels 및 timestamp/value samples 보존
+- 필수 parameter 누락 → HTTP 400
+- invalid PromQL → HTTP 400
+- Prometheus network failure → HTTP 502
+- upstream failure 후 API process 유지
+- 기존 `GET /metrics` regression 없음
 
 현재 Prometheus는 Chronos의 Common Event Source가 아니라
 Metric Store로 사용한다.
@@ -365,9 +442,8 @@ Chronos API application metric을 수집한다.
 
 아직 구현하지 않은 것:
 
-- Prometheus HTTP API query integration
-- `query_range`
-- Incident metric summary
+- WBS 4.4 Incident 전후 metric summary
+- Incident 기준 before/after metric 계산
 
 ---
 

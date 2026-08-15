@@ -229,7 +229,7 @@ GitHub는 Agent를 거치지 않는다.
 
 ### Prometheus
 
-현재 WBS 4.2까지 구현된 metric collection 흐름:
+현재 metric collection 흐름:
 
 ```text
 Prometheus
@@ -247,7 +247,7 @@ WBS 4.1에서 Docker Compose 기반 Prometheus 실행 환경을 추가했다.
 
 WBS 4.2에서 `apps/api`를 현재 application metric producer로 사용한다.
 
-현재 metric endpoint:
+현재 metric exposition endpoint:
 
 - `GET /metrics`
 
@@ -302,33 +302,65 @@ Prometheus UI:
 현재 Prometheus는 자체 metric과
 Chronos API application metric을 수집한다.
 
-아직 구현하지 않은 것:
+WBS 4.3에서 Prometheus HTTP API query integration을 구현했다.
 
-- Prometheus HTTP API query integration
-- `query_range`
-- Incident metric summary
+```text
+Chronos API
+↓ GET /metrics/query-range
+Prometheus client
+↓ GET /api/v1/query_range
+Prometheus
+```
+
+현재 Prometheus client:
+
+- file: `apps/api/src/prometheus.ts`
+- env: `PROMETHEUS_URL`
+- default: `http://localhost:9090`
+- Node.js built-in `fetch`
+- range query only
+
+입력:
+
+- `query`
+- `start`
+- `end`
+- `step`
+
+반환 데이터:
+
+- `resultType: matrix`
+- `series`
+  - metric labels
+  - values `[timestamp, value]`
+
+오류 처리:
+
+- invalid/missing client parameter → HTTP 400
+- Prometheus bad query → HTTP 400
+- Prometheus network/upstream failure → HTTP 502
+- invalid upstream response → HTTP 502
 
 CPU, memory, HTTP latency 등의 metric 원본 time-series를
 PostgreSQL `events` 테이블에 복제하지 않는다.
 
-Agent는 Prometheus metric collection을 담당하지 않는다.
+Agent는 Prometheus metric collection 또는 query를 담당하지 않는다.
 
 `GET /metrics` instrumentation은
 기존 `apps/api` responsibility 내부에서 수행한다.
 
-향후 WBS 4.3에서 구현할 metric query 흐름:
+`GET /metrics`는 Prometheus가 Chronos API에서 metric을 pull하는
+metric exposition endpoint다.
 
-```text
-Chronos API
-↓ Prometheus HTTP API query
-Prometheus
-```
+`GET /metrics/query-range`는 Chronos API가 Prometheus HTTP API에
+range query를 보내는 query endpoint다.
 
-이 query 방향은 현재 구현된
-Prometheus → Chronos API `/metrics` scrape 방향과 별개다.
+scrape 방향과 query 방향을 혼동하지 않는다.
 
-현재 WBS 4.3 Prometheus HTTP API query integration은
-아직 구현하지 않았다.
+아직 구현하지 않은 것:
+
+- WBS 4.4 Incident 전후 metric summary
+- Incident 기준 before/after metric 계산
 
 ### Discord
 
@@ -525,6 +557,8 @@ GET  /health
 
 GET  /metrics
 
+GET  /metrics/query-range
+
 GET  /events
 
 POST /events
@@ -604,9 +638,45 @@ host.docker.internal:4000
 Chronos API
 ```
 
-이 흐름은 metric collection 경로이며,
-향후 Chronos API가 Prometheus HTTP API를 호출하는
-query integration과는 다른 방향이다.
+WBS 4.3에서는 Chronos API가 Prometheus에
+range query를 수행하는 반대 방향의 query integration을 추가했다.
+
+```text
+Chronos API
+↓ GET /metrics/query-range
+Prometheus client
+↓ GET /api/v1/query_range
+Prometheus
+```
+
+`GET /metrics/query-range` query parameters:
+
+- `query`
+- `start`
+- `end`
+- `step`
+
+Prometheus base URL은 `PROMETHEUS_URL` 환경변수를 사용하며,
+기본값은 `http://localhost:9090`이다.
+
+range query response는 검증 후 다음 구조로 반환한다.
+
+- `resultType: matrix`
+- `series`
+  - `metric`: labels
+  - `values`: `[timestamp, value]`
+
+현재 오류 mapping:
+
+- invalid/missing client parameter → HTTP 400
+- Prometheus bad query → HTTP 400
+- Prometheus network/upstream failure → HTTP 502
+- invalid upstream response → HTTP 502
+
+`GET /metrics`는 metric exposition endpoint이고,
+`GET /metrics/query-range`는 Prometheus query endpoint다.
+
+scrape 방향과 query 방향은 서로 다른 역할이다.
 
 ### GitHub Webhook
 
@@ -863,6 +933,7 @@ Docker Engine reconnect와 API delivery retry는
 
 - 4.1 Prometheus 기본 학습 및 실행
 - 4.2 Demo metric 노출
+- 4.3 Prometheus HTTP API 연동
 
 다음 작업은 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 명시적으로 지정한다.
@@ -921,6 +992,7 @@ apps/api/src/
 ├─ github.ts
 ├─ bindings.ts
 ├─ metrics.ts
+├─ prometheus.ts
 └─ schemas/
    └─ event.ts
 
