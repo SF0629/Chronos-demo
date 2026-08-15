@@ -93,6 +93,14 @@ v0.1에서는 ORM을 사용하지 않는다.
 - PostgreSQL
 - Prometheus
 
+현재 infra 파일:
+
+```text
+infra/
+├─ docker-compose.yml
+└─ prometheus.yml
+```
+
 ---
 
 ## 4. Repository Architecture
@@ -228,6 +236,41 @@ Prometheus HTTP API
 ```
 
 Prometheus는 주로 Event Source가 아니라 Metric Store로 취급한다.
+
+WBS 4.1에서 Docker Compose 기반 Prometheus 실행 환경을 추가했다.
+
+현재 Prometheus configuration:
+
+- scrape interval: `15s`
+- self-scrape job: `prometheus`
+- target: `localhost:9090`
+
+Prometheus UI:
+
+- `http://localhost:9090`
+
+실제 self-scrape target이 UP 상태인 것을 검증했다.
+
+기본 PromQL:
+
+- `up`
+- `up{job="prometheus"}`
+
+현재 단계에서는 Prometheus 자체 metric만 수집한다.
+
+아직 구현하지 않은 것:
+
+- Demo API metric 노출
+- Chronos용 application metric scrape
+- Prometheus HTTP API query integration
+- `query_range`
+- Incident metric summary
+
+CPU, memory, HTTP latency 등의 metric 원본 time-series를
+PostgreSQL `events` 테이블에 복제하지 않는다.
+
+향후 Chronos API가 Incident 전후 필요한 시간 구간의 metric을
+Prometheus HTTP API에서 조회한다.
 
 ### Discord
 
@@ -718,6 +761,8 @@ Docker Engine reconnect와 API delivery retry는
 
 - 3.1 GitHub Webhook endpoint
 - 3.2 GitHub push Event 처리
+
+- 4.1 Prometheus 기본 학습 및 실행
 
 다음 작업은 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 명시적으로 지정한다.

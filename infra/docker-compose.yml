@@ -20,5 +20,13 @@ services:
             timeout: 5s
             retries: 5
 
+    prometheus:
+        image: prom/prometheus
+        container_name: chronos-prometheus
+        ports:
+            - "9090:9090"
+        volumes:
+            - "./prometheus.yml:/etc/prometheus/prometheus.yml:ro"
+
 volumes:
     chronos-postgres-data:

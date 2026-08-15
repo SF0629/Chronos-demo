@@ -16,6 +16,7 @@
 - 2.3 Agent 재연결 / 예외 처리 — 완료
 - 3.1 GitHub Webhook endpoint — 완료
 - 3.2 GitHub push Event 처리 — 완료
+- 4.1 Prometheus 기본 학습 및 실행 — 완료
 
 ### Current Assigned
 
@@ -34,11 +35,22 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 2.3 Agent 재연결 / 예외 처리
 - WBS 3.1 GitHub Webhook endpoint
 - WBS 3.2 GitHub push Event 처리
+- WBS 4.1 Prometheus 기본 학습 및 실행
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤
 Chronos API의 Event persistence 경로를 통해
 PostgreSQL `events` 테이블에 저장되는 것을 검증했다.
+
+Prometheus는 Docker Compose에서 실행되며 다음 상태를 검증했다.
+
+- Prometheus UI `http://localhost:9090` 접속
+- self-scrape target `job="prometheus"` 상태 UP
+- PromQL `up` 조회
+- PromQL `up{job="prometheus"}` 조회
+
+현재는 Prometheus self-scrape만 구성되어 있다.
+Chronos용 Demo API metric 수집은 아직 구현하지 않았으며 WBS 4.2 범위다.
 
 GitHub 처리 흐름:
 
@@ -284,6 +296,40 @@ Docker Engine reconnect와 Chronos API delivery retry는
 
 현재 persistent local queue 또는 disk-backed buffering은
 구현하지 않는다.
+
+---
+
+## Prometheus State
+
+현재 실행 구조:
+
+```text
+Docker Compose
+↓
+chronos-prometheus
+↓
+infra/prometheus.yml
+```
+
+현재 설정:
+
+- image: `prom/prometheus`
+- host port: `9090`
+- scrape interval: `15s`
+- self-scrape job: `prometheus`
+- target: `localhost:9090`
+- target state: UP
+
+검증된 PromQL:
+
+- `up`
+- `up{job="prometheus"}`
+
+현재 Prometheus는 Chronos의 Common Event Source가 아니라
+Metric Store로 사용한다.
+
+현재는 Prometheus 자체 metric만 수집하며,
+Demo API metric 수집은 아직 구현하지 않았다.
 
 ---
 
