@@ -229,39 +229,81 @@ GitHub는 Agent를 거치지 않는다.
 
 ### Prometheus
 
+현재 WBS 4.2까지 구현된 metric collection 흐름:
+
 ```text
+Prometheus
+↓ scrape GET /metrics
 Chronos API
-↓ Query
-Prometheus HTTP API
+
+수집된 metric
+↓
+Prometheus time-series storage
 ```
 
 Prometheus는 주로 Event Source가 아니라 Metric Store로 취급한다.
 
 WBS 4.1에서 Docker Compose 기반 Prometheus 실행 환경을 추가했다.
 
+WBS 4.2에서 `apps/api`를 현재 application metric producer로 사용한다.
+
+현재 metric endpoint:
+
+- `GET /metrics`
+
+metric instrumentation에는 `prom-client`를 사용한다.
+
+현재 Chronos application metrics:
+
+- `chronos_http_requests_total`
+  - type: Counter
+  - labels: `method`, `status_code`
+
+- `chronos_http_request_duration_seconds`
+  - type: Histogram
+  - labels: `method`, `status_code`
+
+`/metrics` 요청 자체는
+Chronos application HTTP request metric에서 제외한다.
+
 현재 Prometheus configuration:
 
 - scrape interval: `15s`
-- self-scrape job: `prometheus`
-- target: `localhost:9090`
+
+scrape jobs:
+
+- `prometheus`
+  - target: `localhost:9090`
+  - Prometheus self-scrape
+
+- `chronos-api`
+  - target: `host.docker.internal:4000`
+  - Chronos API `GET /metrics`
+
+`host.docker.internal:4000`은 현재 로컬 개발 환경에서
+Docker Desktop의 Prometheus container가
+host에서 실행 중인 Chronos API에 접근하기 위한 target이다.
 
 Prometheus UI:
 
 - `http://localhost:9090`
 
 실제 self-scrape target이 UP 상태인 것을 검증했다.
+실제 `chronos-api` target도 UP 상태인 것을 검증했다.
 
 기본 PromQL:
 
 - `up`
 - `up{job="prometheus"}`
+- `up{job="chronos-api"}`
+- `chronos_http_requests_total`
+- `chronos_http_request_duration_seconds_count`
 
-현재 단계에서는 Prometheus 자체 metric만 수집한다.
+현재 Prometheus는 자체 metric과
+Chronos API application metric을 수집한다.
 
 아직 구현하지 않은 것:
 
-- Demo API metric 노출
-- Chronos용 application metric scrape
 - Prometheus HTTP API query integration
 - `query_range`
 - Incident metric summary
@@ -269,8 +311,24 @@ Prometheus UI:
 CPU, memory, HTTP latency 등의 metric 원본 time-series를
 PostgreSQL `events` 테이블에 복제하지 않는다.
 
-향후 Chronos API가 Incident 전후 필요한 시간 구간의 metric을
-Prometheus HTTP API에서 조회한다.
+Agent는 Prometheus metric collection을 담당하지 않는다.
+
+`GET /metrics` instrumentation은
+기존 `apps/api` responsibility 내부에서 수행한다.
+
+향후 WBS 4.3에서 구현할 metric query 흐름:
+
+```text
+Chronos API
+↓ Prometheus HTTP API query
+Prometheus
+```
+
+이 query 방향은 현재 구현된
+Prometheus → Chronos API `/metrics` scrape 방향과 별개다.
+
+현재 WBS 4.3 Prometheus HTTP API query integration은
+아직 구현하지 않았다.
 
 ### Discord
 
@@ -465,6 +523,8 @@ Chronos는 이를 근거로 root cause를 확정하지 않는다.
 ```text
 GET  /health
 
+GET  /metrics
+
 GET  /events
 
 POST /events
@@ -508,6 +568,45 @@ GitHub Webhook
 → createEvent()
 → PostgreSQL
 ```
+
+### Prometheus Metrics
+
+현재 `apps/api`는 다음 endpoint를 통해
+Prometheus exposition format의 application metric을 노출한다.
+
+```text
+GET /metrics
+```
+
+metric instrumentation에는 `prom-client`를 사용한다.
+
+현재 수집하는 metric:
+
+```text
+chronos_http_requests_total
+chronos_http_request_duration_seconds
+```
+
+HTTP request count와 duration은
+Express middleware에서 response 완료 시점에 기록한다.
+
+`/metrics` scrape 요청 자체는
+application HTTP metric에서 제외한다.
+
+현재 Prometheus는 이 endpoint를
+`chronos-api` job으로 scrape한다.
+
+```text
+Prometheus
+↓ GET /metrics
+host.docker.internal:4000
+↓
+Chronos API
+```
+
+이 흐름은 metric collection 경로이며,
+향후 Chronos API가 Prometheus HTTP API를 호출하는
+query integration과는 다른 방향이다.
 
 ### GitHub Webhook
 
@@ -763,6 +862,7 @@ Docker Engine reconnect와 API delivery retry는
 - 3.2 GitHub push Event 처리
 
 - 4.1 Prometheus 기본 학습 및 실행
+- 4.2 Demo metric 노출
 
 다음 작업은 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 명시적으로 지정한다.
@@ -820,6 +920,7 @@ apps/api/src/
 ├─ events.ts
 ├─ github.ts
 ├─ bindings.ts
+├─ metrics.ts
 └─ schemas/
    └─ event.ts
 
