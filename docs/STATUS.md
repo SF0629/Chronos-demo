@@ -21,6 +21,7 @@
 - 4.3 Prometheus HTTP API 연동 — 완료
 - 4.4 장애 전후 metric summary — 완료
 - 5.1 Incident 생성/종료 API — 완료
+- 5.2 Correlation 규칙 설계 — 완료
 
 ### Current Assigned
 
@@ -28,7 +29,7 @@
 
 Last approved WBS:
 
-- WBS 5.1 Incident 생성/종료 API
+- WBS 5.2 Correlation 규칙 설계
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
@@ -52,6 +53,7 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 4.3 Prometheus HTTP API 연동
 - WBS 4.4 장애 전후 metric summary
 - WBS 5.1 Incident 생성/종료 API
+- WBS 5.2 Correlation 규칙 설계
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤
@@ -250,6 +252,23 @@ DB migration은 추가하지 않았다.
 - Incident reopen
 - Incident list API
 - Incident detail API
+
+WBS 5.2에서 v0.1 Correlation scoring rule을 문서로 확정했다.
+
+핵심 규칙:
+
+- 같은 `service_id`의 Event만 후보
+- Incident 기준 시각: `incidents.started_at`
+- Event 기준 시각: `events.occurred_at`
+- candidate window: Incident 전 15분 / 후 5분
+- `score = timeWeight × typeWeight`
+- score는 root cause probability가 아닌 relevance score
+- unknown Event type generic fallback 없음
+- Related Event ranking: `score DESC` → absolute time distance `ASC` → `occurred_at DESC` → `event.id ASC`
+- `delta`는 timestamp 실제 차이를 그대로 사용하며 bucket 판정 전 round/floor/truncate/integer conversion을 하지 않음
+
+이번 WBS는 docs-only 설계이며 correlation TypeScript/SQL,
+`incident_events` persistence, API, top-N은 아직 구현하지 않았다.
 
 GitHub 처리 흐름:
 
@@ -741,7 +760,7 @@ downstream logic에 노출되지 않도록 한다.
 
 Last approved WBS:
 
-- WBS 5.1 Incident 생성/종료 API
+- WBS 5.2 Correlation 규칙 설계
 
 Current assigned WBS:
 

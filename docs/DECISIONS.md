@@ -424,3 +424,140 @@ STATUS.md
 DECISIONS.md
 기존 WBS
 ```
+
+---
+
+## D-011 v0.1 Correlation Scoring Rule
+
+### Decision
+
+Chronos v0.1의 Incident ↔ Event correlation은
+같은 Service의 Event만 대상으로 한다.
+
+```text
+event.service_id = incident.service_id
+```
+
+시간 기준은 다음을 사용한다.
+
+```text
+Incident reference = incidents.started_at
+Event time         = events.occurred_at
+```
+
+`events.received_at`은 correlation 시간 계산에 사용하지 않는다.
+
+Candidate window는 Incident 시작 전 15분부터 시작 후 5분까지이며
+양쪽 경계를 포함한다.
+
+```text
+incident.started_at - 15 minutes
+<= event.occurred_at
+<= incident.started_at + 5 minutes
+```
+
+시간 weight는 before Event를 더 우선하도록 다음과 같이 사용한다.
+
+| Event 위치 | 조건 | Time Weight |
+|---|---|---:|
+| Incident 전 0~1분 | `0 <= delta <= 60s` | 1.00 |
+| Incident 전 1~5분 | `60s < delta <= 300s` | 0.80 |
+| Incident 전 5~15분 | `300s < delta <= 900s` | 0.50 |
+| Incident 후 0~1분 | `0 < delta <= 60s` | 0.60 |
+| Incident 후 1~5분 | `60s < delta <= 300s` | 0.30 |
+
+시간 bucket의 방향은 다음과 같이 결정한다.
+
+- `event.occurred_at <= incident.started_at`이면 before
+- `event.occurred_at > incident.started_at`이면 after
+
+`delta`는 `incidents.started_at`과 `events.occurred_at` 사이의
+실제 경과 시간(seconds)의 절대값이다.
+
+Bucket 판정 전에 `delta`를 round, floor, truncate하거나
+integer로 변환하지 않는다.
+Timestamp의 실제 차이를 그대로 위 boundary와 비교한다.
+
+예:
+
+```text
+59.9s before → 1.00
+60.0s before → 1.00
+60.1s before → 0.80
+```
+
+정확히 Incident 시작 시각인 Event는 before의 `delta = 0`이다.
+
+현재 v0.1 Event type weight는 다음과 같다.
+
+| Event Type | Type Weight |
+|---|---:|
+| `github.push` | 1.00 |
+| `docker.container.restart` | 0.95 |
+| `docker.container.die` | 0.90 |
+| `docker.container.stop` | 0.85 |
+| `docker.container.start` | 0.75 |
+
+현재 정의되지 않은 Event type에는 generic fallback weight를 만들지 않으며
+v0.1 scoring 대상에서 제외한다.
+
+최종 score는 다음과 같이 계산한다.
+
+```text
+score = timeWeight × typeWeight
+```
+
+추가 bonus나 penalty는 사용하지 않는다.
+
+Related Event ranking은 다음 순서를 사용한다.
+
+1. `score DESC`
+2. 동일 score이면 Incident와의 절대 시간 거리 `ASC`
+3. 그래도 같으면 `occurred_at DESC`
+4. 그래도 같으면 `event.id ASC`
+
+`event.id`는 relevance 의미를 가지지 않는다.
+동일한 score, 절대 시간 거리, `occurred_at`을 가진 Event가 여러 개일 때
+출력 순서를 안정적으로 결정하기 위한 final deterministic tie-breaker다.
+
+Timeline의 chronological sorting과
+Related Changes의 relevance ranking은 별개의 책임으로 유지한다.
+
+### Reason
+
+이 규칙은 v0.1에서 다음 특성을 제공한다.
+
+- 단순하고 설명 가능함
+- 동일 입력에서 동일 결과가 나오는 deterministic ranking
+- Chronos의 핵심 질문인 장애 직전 변경을 더 우선함
+- Incident 직후 recovery/restart 문맥도 낮은 weight로 보존함
+- Source-specific metadata와 scoring logic을 직접 결합하지 않음
+- 시간 거리와 Event 종류라는 현재 WBS 범위만 사용함
+
+### Constraint
+
+`incident_events.score`는 `0.0 ~ 1.0`의 relevance score이며
+root cause probability가 아니다.
+
+Chronos는 이 score를 근거로 장애 원인을 확정하지 않는다.
+
+현재 scoring에는 다음을 사용하지 않는다.
+
+- Event metadata
+- GitHub author / branch / commit count / commit message
+- container image 비교
+- Prometheus metric 값
+- Source별 추가 multiplier
+- ML 또는 복합 heuristic chain
+
+metric 기반 score가 아니며, unknown Event type용 generic fallback도 없다.
+
+WBS 5.2에서는 DB schema, `incident_events` table,
+correlation persistence 또는 API를 변경하지 않는다.
+
+### Revisit When
+
+- 실제 demo / E2E에서 ranking 품질 문제가 확인됨
+- 새로운 Event type이 추가됨
+- monorepo / path-specific attribution이 도입됨
+- 더 많은 telemetry를 scoring에 사용할 실제 요구가 발생함

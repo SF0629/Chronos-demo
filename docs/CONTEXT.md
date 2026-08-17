@@ -669,6 +669,9 @@ raw metric time-series
 
 ## 12. Correlation Score
 
+WBS 5.2에서는 v0.1 Related Event ranking을 위해
+시간 거리와 Event 종류만 사용하는 deterministic correlation rule을 정의한다.
+
 `incident_events.score` 범위:
 
 ```text
@@ -685,6 +688,165 @@ UI에서는 필요하면 0~100 형태로 표현할 수 있다.
 relevance score이다.
 
 Chronos는 이를 근거로 root cause를 확정하지 않는다.
+
+### Candidate filtering
+
+Correlation 후보는 Incident와 같은 Service에 속하는 Event로 제한한다.
+
+```text
+event.service_id = incident.service_id
+```
+
+다른 Service의 Event는 시간상 가까워도 후보가 아니다.
+
+Incident reference timestamp는 `incidents.started_at`,
+Event timestamp는 `events.occurred_at`을 사용한다.
+
+`events.received_at`은 Chronos가 Event를 수신한 시각이므로
+correlation 시간 계산에 사용하지 않는다.
+
+Candidate time window는 Incident 시작 전 15분부터 시작 후 5분까지다.
+양쪽 경계는 포함한다.
+
+```text
+incident.started_at - 15 minutes
+<= event.occurred_at
+<= incident.started_at + 5 minutes
+```
+
+이 범위 밖 Event는 후보에서 제외한다.
+
+현재 정의된 다음 Event type만 v0.1 scoring 대상이다.
+
+```text
+github.push
+docker.container.restart
+docker.container.die
+docker.container.stop
+docker.container.start
+```
+
+정의되지 않은 Event type은 generic fallback weight를 적용하지 않고
+v0.1 correlation 후보에서 제외한다.
+
+### Time Weight
+
+시간 bucket의 방향은 다음과 같이 결정한다.
+
+- `event.occurred_at <= incident.started_at`이면 before
+- `event.occurred_at > incident.started_at`이면 after
+
+`delta`는 `incidents.started_at`과 `events.occurred_at` 사이의
+실제 경과 시간(seconds)의 절대값이다.
+
+Bucket 판정 전에 `delta`를 round, floor, truncate하거나
+integer로 변환하지 않는다.
+Timestamp의 실제 차이를 그대로 boundary와 비교한다.
+
+예:
+
+```text
+59.9s before → before 0~1m → 1.00
+60.0s before → before 0~1m → 1.00
+60.1s before → before 1~5m → 0.80
+```
+
+따라서 Incident 시작 시각과 정확히 같은 Event는 before의 `delta = 0`이다.
+
+| Event 위치 | 정확한 조건 | Time Weight |
+|---|---|---:|
+| Incident 전 0~1분 | before, `0 <= delta <= 60s` | 1.00 |
+| Incident 전 1~5분 | before, `60s < delta <= 300s` | 0.80 |
+| Incident 전 5~15분 | before, `300s < delta <= 900s` | 0.50 |
+| Incident 후 0~1분 | after, `0 < delta <= 60s` | 0.60 |
+| Incident 후 1~5분 | after, `60s < delta <= 300s` | 0.30 |
+| window 밖 | 위 candidate window 밖 | 후보 제외 |
+
+따라서 정확히 60초 전 Event는 1.00,
+정확히 300초 전 Event는 0.80,
+정확히 900초 전 Event는 0.50이다.
+
+정확히 60초 후 Event는 0.60,
+정확히 300초 후 Event는 0.30이다.
+
+before window를 더 길게 두고 더 높은 weight를 부여하는 것은
+Chronos의 핵심 질문인 "장애 직전에 무엇이 바뀌었는가?"를 우선하기 위함이다.
+after Event도 recovery/restart 문맥을 제공할 수 있으므로 후보에 포함하지만
+before보다 낮은 time weight를 사용한다.
+
+### Event Type Weight
+
+| Event Type | Type Weight | 의미 |
+|---|---:|---|
+| `github.push` | 1.00 | 배포/코드 변경과 직접 연결될 수 있는 변경 기록 |
+| `docker.container.restart` | 0.95 | 실행 상태가 명시적으로 다시 시작된 변화 |
+| `docker.container.die` | 0.90 | Incident와 밀접할 수 있는 runtime failure signal |
+| `docker.container.stop` | 0.85 | 서비스 중단과 연결될 수 있는 상태 변화 |
+| `docker.container.start` | 0.75 | 배포/재기동 문맥에서 관련될 수 있지만 start 자체는 상대적으로 약한 signal |
+
+이 weight는 root cause probability가 아니라
+v0.1 ranking을 위한 상대적인 relevance weight다.
+
+예를 들어 `github.push = 1.00`은
+GitHub push가 장애 원인일 확률이 100%라는 의미가 아니다.
+
+### Final Score
+
+최종 score는 추가 bonus나 penalty 없이 다음 곱으로 계산한다.
+
+```text
+score = timeWeight × typeWeight
+```
+
+현재 scoring에는 다음 정보를 사용하지 않는다.
+
+- Event metadata
+- GitHub author
+- branch
+- commit count
+- commit message
+- container image 비교
+- Prometheus metric 값
+- Source별 추가 multiplier
+- ML
+- heuristic chain
+
+### Examples
+
+| Event | Incident 기준 위치 | Time Weight | Type Weight | 결과 |
+|---|---:|---:|---:|---:|
+| `github.push` | 30초 전 | 1.00 | 1.00 | `1.00` |
+| `docker.container.restart` | 3분 전 | 0.80 | 0.95 | `0.76` |
+| `docker.container.die` | 30초 후 | 0.60 | 0.90 | `0.54` |
+| `docker.container.start` | 10분 전 | 0.50 | 0.75 | `0.375` |
+| `github.push` | 20분 전 | window 밖 | 1.00 | correlation 대상 제외 |
+
+### Related Event Ranking
+
+Related Changes / Potentially Relevant Events의 기본 정렬은 다음과 같다.
+
+1. `score DESC`
+2. 동일 score이면 Incident와의 절대 시간 거리 `ASC`
+3. 그래도 같으면 `occurred_at DESC`
+4. 그래도 같으면 `event.id ASC`
+
+`event.id`는 relevance 의미를 가지지 않는다.
+동일한 score, 절대 시간 거리, `occurred_at`을 가진 Event가 여러 개일 때
+출력 순서를 안정적으로 결정하기 위한 final deterministic tie-breaker다.
+
+Timeline의 chronological sorting과 Related Changes의 relevance ranking은 별개다.
+
+```text
+Timeline
+→ 시간순
+
+Related Changes
+→ relevance score 중심
+```
+
+WBS 5.2에서는 top-N 개수를 정하지 않는다.
+또한 correlation TypeScript/SQL 구현, `incident_events` persistence,
+API endpoint, Metric Summary 연동은 수행하지 않는다.
 
 ---
 
@@ -1175,6 +1337,7 @@ Docker Engine reconnect와 API delivery retry는
 - 4.4 장애 전후 metric summary
 
 - 5.1 Incident 생성/종료 API
+- 5.2 Correlation 규칙 설계
 
 다음 작업은 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
