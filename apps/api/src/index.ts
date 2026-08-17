@@ -1,6 +1,7 @@
 import express from "express";
 import { pool } from "./db.js";
 import { createEventSchema } from "./schemas/event.js";
+import { createIncidentSchema, incidentIdSchema } from "./schemas/incident.js";
 import {
     normalizeGitHubPush,
     type GitHubPushPayload,
@@ -8,6 +9,7 @@ import {
 } from "./github.js";
 import { resolveServiceBinding } from "./bindings.js";
 import { createEvent } from "./events.js";
+import { createIncident, resolveIncident } from "./incidents.js";
 import { httpRequestDurationSeconds, httpRequestsTotal } from "./metrics.js";
 import {
     PrometheusClientError,
@@ -296,6 +298,53 @@ app.post("/events", async (req, res) => {
     const result = await createEvent(parsed.data);
 
     return res.status(201).json(result);
+});
+
+app.post("/incidents", async (req, res) => {
+    const parsed = createIncidentSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+        return res.status(400).json({
+            error: "Invalid incident",
+            details: parsed.error.issues,
+        });
+    }
+
+    const incident = await createIncident(parsed.data);
+
+    if (!incident) {
+        return res.status(404).json({
+            error: "Service not found",
+        });
+    }
+
+    return res.status(201).json(incident);
+});
+
+app.post("/incidents/:id/resolve", async (req, res) => {
+    const parsedId = incidentIdSchema.safeParse(req.params.id);
+
+    if (!parsedId.success) {
+        return res.status(400).json({
+            error: "Invalid incident id",
+        });
+    }
+
+    const result = await resolveIncident(parsedId.data);
+
+    if (result.kind === "not_found") {
+        return res.status(404).json({
+            error: "Incident not found",
+        });
+    }
+
+    if (result.kind === "already_resolved") {
+        return res.status(409).json({
+            error: "Incident already resolved",
+        });
+    }
+
+    return res.status(200).json(result.incident);
 });
 
 app.get("/services/:id/events", async (req, res) => {

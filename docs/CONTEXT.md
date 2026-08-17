@@ -459,9 +459,10 @@ metric 수집 시작 이후 누적 평균에 가까운 값이 된다.
 이는 응답 시간이 0초였다는 뜻이 아니라 해당 window에서
 계산 가능한 HTTP request가 없다는 의미이기 때문이다.
 
-현재 `incidentAt`은 실제 Incident API와 연결되어 있지 않다.
+WBS 5.1에서 Incident 생성/종료 API가 구현되었지만,
+`GET /metrics/summary`는 아직 실제 Incident DB와 자동 연결되어 있지 않다.
 
-따라서 현재는 `/metrics/summary` 요청에서 직접 전달받는
+현재도 `incidentAt`은 `/metrics/summary` 요청에서 직접 전달받는
 Unix timestamp seconds를 사용한다.
 
 ```text
@@ -474,8 +475,7 @@ GET /metrics/summary
 
 - incident_id를 받아 DB에서 Incident 조회
 - incidents.started_at 자동 사용
-- Incident 생성/종료 API
-- 자동 Incident detection
+- automatic Incident detection
 
 Metric Summary는 Incident 전후에 관측된 latency 값을 보여줄 뿐
 latency 변화가 Incident의 원인이라고 주장하지 않는다.
@@ -705,6 +705,10 @@ GET  /events
 
 POST /events
 
+POST /incidents
+
+POST /incidents/:id/resolve
+
 GET  /services/:id/events
 
 POST /webhooks/github
@@ -744,6 +748,69 @@ GitHub Webhook
 → createEvent()
 → PostgreSQL
 ```
+
+### Incident Lifecycle
+
+Incident는 Event처럼 하나의 관측 사실을 표현하는 것이 아니라
+서비스 장애 상황의 lifecycle을 표현한다.
+
+현재 v0.1 Incident lifecycle은 다음 하나뿐이다.
+
+```text
+open → resolved
+```
+
+Incident 생성 endpoint:
+
+```text
+POST /incidents
+```
+
+client가 전달하는 값:
+
+- `serviceId`
+- `title`
+
+server가 결정하는 값:
+
+- `status = open`
+- `started_at = CURRENT_TIMESTAMP`
+- `resolved_at = NULL`
+- `trigger_type = manual`
+
+client가 lifecycle state나 timestamp를 임의로 결정하지 않는다.
+존재하지 않는 Service로 생성하려 하면 HTTP 404로 처리한다.
+
+Incident resolve endpoint:
+
+```text
+POST /incidents/:id/resolve
+```
+
+open Incident만 resolved로 전환한다.
+resolve 시 `status = resolved`, `resolved_at = CURRENT_TIMESTAMP`를 기록한다.
+
+이미 resolved인 Incident는 HTTP 409로 처리하며
+기존 `resolved_at`을 새 시간으로 덮어쓰지 않는다.
+
+현재 기존 `incidents` table을 그대로 사용하며
+WBS 5.1에서 DB schema 또는 migration을 변경하지 않았다.
+
+최소 책임 분리:
+
+```text
+apps/api/src/schemas/incident.ts
+= HTTP input validation
+
+apps/api/src/incidents.ts
+= PostgreSQL persistence / lifecycle transition
+
+apps/api/src/index.ts
+= route / HTTP status mapping
+```
+
+현재 automatic Incident detection, Incident ↔ Event correlation,
+Timeline / Related Changes, reopen, Incident list/detail API는 구현하지 않는다.
 
 ### Prometheus Metrics
 
@@ -1107,8 +1174,10 @@ Docker Engine reconnect와 API delivery retry는
 - 4.3 Prometheus HTTP API 연동
 - 4.4 장애 전후 metric summary
 
+- 5.1 Incident 생성/종료 API
+
 다음 작업은 Worker가 임의로 추측하지 않는다.
-Supervisor가 기존 WBS를 확인한 뒤 새 Worker에게 명시적으로 지정한다.
+Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
 
 ---
 
@@ -1164,13 +1233,15 @@ apps/api/src/
 ├─ index.ts
 ├─ db.ts
 ├─ events.ts
+├─ incidents.ts
 ├─ github.ts
 ├─ bindings.ts
 ├─ metrics.ts
 ├─ prometheus.ts
 ├─ metric-summary.ts
 └─ schemas/
-   └─ event.ts
+   ├─ event.ts
+   └─ incident.ts
 
 apps/agent/src/
 ├─ index.ts

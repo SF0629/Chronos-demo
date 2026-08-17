@@ -20,6 +20,7 @@
 - 4.2 Demo metric 노출 — 완료
 - 4.3 Prometheus HTTP API 연동 — 완료
 - 4.4 장애 전후 metric summary — 완료
+- 5.1 Incident 생성/종료 API — 완료
 
 ### Current Assigned
 
@@ -27,14 +28,14 @@
 
 Last approved WBS:
 
-- WBS 4.4 장애 전후 metric summary
+- WBS 5.1 Incident 생성/종료 API
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
-Supervisor가 기존 WBS를 확인한 뒤 새 Worker에게 명시적으로 지정한다.
+Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
 
 Next Supervisor action:
 
-- 새 Worker 전환 및 다음 WBS 명시적 할당
+- Supervisor가 기존 WBS를 확인하고 다음 WBS를 명시적으로 할당
 
 ---
 
@@ -50,6 +51,7 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 4.2 Demo metric 노출
 - WBS 4.3 Prometheus HTTP API 연동
 - WBS 4.4 장애 전후 metric summary
+- WBS 5.1 Incident 생성/종료 API
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤
@@ -188,6 +190,66 @@ raw Prometheus metric time-series는 PostgreSQL에 저장하지 않는다.
 
 Metric summary는 Incident 전후 관측 값을 보여줄 뿐,
 latency 변화가 Incident의 원인이라고 판단하지 않는다.
+
+WBS 5.1에서 수동 Incident lifecycle API를 구현했다.
+
+Incident 생성 endpoint:
+
+- `POST /incidents`
+
+client input:
+
+- `serviceId`
+- `title`
+
+server-controlled values:
+
+- `status = open`
+- `started_at = CURRENT_TIMESTAMP`
+- `resolved_at = NULL`
+- `trigger_type = manual`
+
+존재하지 않는 Service로 Incident를 생성하려 하면 HTTP 404로 처리한다.
+invalid create input 또는 invalid Service UUID는 HTTP 400으로 처리한다.
+
+Incident resolve endpoint:
+
+- `POST /incidents/:id/resolve`
+
+현재 lifecycle:
+
+```text
+open → resolved
+```
+
+resolve 시:
+
+- `status = resolved`
+- `resolved_at = CURRENT_TIMESTAMP`
+
+이미 resolved된 Incident를 다시 resolve하면 HTTP 409로 처리한다.
+UPDATE 대상은 `status = 'open'`인 row로 제한되어 repeated resolve가
+기존 `resolved_at`을 덮어쓰지 않는다.
+
+invalid Incident UUID는 HTTP 400,
+존재하지 않는 Incident는 HTTP 404로 처리한다.
+
+실제 PostgreSQL 환경에서 Incident create와 resolve를 검증했고,
+create INSERT와 resolve UPDATE 및 `started_at` 유지,
+repeated resolve 후 `resolved_at` 불변을 확인했다.
+
+WBS 5.1에서는 기존 `incidents` table을 그대로 사용했으며
+DB migration은 추가하지 않았다.
+
+현재 아직 구현하지 않은 Incident 기능:
+
+- automatic Incident detection
+- Incident ↔ Event correlation
+- Incident Timeline
+- Related Changes
+- Incident reopen
+- Incident list API
+- Incident detail API
 
 GitHub 처리 흐름:
 
@@ -592,7 +654,7 @@ averageLatency = sumDelta / countDelta
 `countDelta = 0`인 경우 `averageLatency = 0`으로 반환하지 않는다.
 이는 응답 시간이 0초였다는 뜻이 아니라 해당 window에서 계산 가능한 HTTP request가 없다는 의미다.
 
-현재 `incidentAt`은 실제 Incident API와 연결되어 있지 않고
+현재 `incidentAt`은 실제 Incident API가 존재하더라도 Incident DB와 자동 연결되지 않고
 `GET /metrics/summary` 요청에서 직접 전달받는 Unix timestamp seconds다.
 
 ```text
@@ -605,8 +667,7 @@ GET /metrics/summary
 
 - incident_id를 받아 DB에서 Incident 조회
 - incidents.started_at 자동 사용
-- Incident 생성/종료 API
-- 자동 Incident detection
+- automatic Incident detection
 
 현재 Prometheus는 Chronos의 Common Event Source가 아니라 Metric Store로 사용한다.
 
@@ -680,18 +741,18 @@ downstream logic에 노출되지 않도록 한다.
 
 Last approved WBS:
 
-- WBS 4.4 장애 전후 metric summary
+- WBS 5.1 Incident 생성/종료 API
 
 Current assigned WBS:
 
 - 없음
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
-Supervisor가 새 Worker에게 다음 WBS를 별도로 명시적으로 할당한다.
+Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
 
 Next Supervisor action:
 
-- 새 Worker 전환 및 다음 WBS 명시적 할당
+- Supervisor가 기존 WBS를 확인하고 다음 WBS를 명시적으로 할당
 
 불필요한 전체 API restructuring은 하지 않는다.
 
@@ -699,7 +760,7 @@ Next Supervisor action:
 
 ## Supervisor Review Rule
 
-작업 채팅에서 다음 변경이 필요하다고 판단되면
+작업 채팅에서 다음 변경이 필요하다고 판단하면
 바로 구현하지 않고 총괄 검토를 먼저 받는다.
 
 - DB schema 변경
