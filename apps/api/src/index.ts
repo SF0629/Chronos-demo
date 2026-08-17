@@ -13,6 +13,10 @@ import {
     PrometheusClientError,
     queryPrometheusRange,
 } from "./prometheus.js";
+import {
+    getHttpLatencyMetricSummary,
+    MetricSummaryUnavailableError,
+} from "./metric-summary.js";
 import { register } from "prom-client";
 
 const app = express();
@@ -189,6 +193,75 @@ app.get("/metrics/query-range", async (req, res) => {
 
         return res.status(502).json({
             error: "Prometheus query failed",
+        });
+    }
+});
+
+app.get("/metrics/summary", async (req, res) => {
+    const incidentAtRaw =
+        typeof req.query.incidentAt === "string"
+            ? req.query.incidentAt.trim()
+            : "";
+
+    const windowSecondsRaw =
+        typeof req.query.windowSeconds === "string"
+            ? req.query.windowSeconds.trim()
+            : "";
+
+    if (!incidentAtRaw) {
+        return res.status(400).json({
+            error: "incidentAt is required",
+        });
+    }
+
+    if (!windowSecondsRaw) {
+        return res.status(400).json({
+            error: "windowSeconds is required",
+        });
+    }
+
+    const incidentAt = Number(incidentAtRaw);
+    const windowSeconds = Number(windowSecondsRaw);
+
+    if (!Number.isFinite(incidentAt)) {
+        return res.status(400).json({
+            error: "incidentAt must be a finite number",
+        });
+    }
+
+    if (!Number.isInteger(windowSeconds) || windowSeconds <= 0) {
+        return res.status(400).json({
+            error: "windowSeconds must be a positive integer",
+        });
+    }
+
+    try {
+        const summary = await getHttpLatencyMetricSummary(
+            incidentAt,
+            windowSeconds,
+        );
+
+        return res.json(summary);
+    } catch (error) {
+        if (error instanceof MetricSummaryUnavailableError) {
+            return res.status(422).json({
+                error: error.message,
+            });
+        }
+
+        if (error instanceof PrometheusClientError) {
+            return res.status(error.statusCode).json({
+                error: error.message,
+                ...(error.errorType
+                    ? { errorType: error.errorType }
+                    : {}),
+            });
+        }
+
+        console.error("[metrics] unexpected metric summary error", error);
+
+        return res.status(500).json({
+            error: "Metric summary failed",
         });
     }
 });

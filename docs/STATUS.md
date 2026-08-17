@@ -19,13 +19,22 @@
 - 4.1 Prometheus 기본 학습 및 실행 — 완료
 - 4.2 Demo metric 노출 — 완료
 - 4.3 Prometheus HTTP API 연동 — 완료
+- 4.4 장애 전후 metric summary — 완료
 
 ### Current Assigned
 
 - 없음
 
+Last approved WBS:
+
+- WBS 4.4 장애 전후 metric summary
+
 다음 WBS는 Worker가 임의로 추측하지 않는다.
-Supervisor가 기존 WBS를 확인한 뒤 명시적으로 지정한다.
+Supervisor가 기존 WBS를 확인한 뒤 새 Worker에게 명시적으로 지정한다.
+
+Next Supervisor action:
+
+- 새 Worker 전환 및 다음 WBS 명시적 할당
 
 ---
 
@@ -40,6 +49,7 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 4.1 Prometheus 기본 학습 및 실행
 - WBS 4.2 Demo metric 노출
 - WBS 4.3 Prometheus HTTP API 연동
+- WBS 4.4 장애 전후 metric summary
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤
@@ -104,6 +114,80 @@ Prometheus URL 설정:
 - Prometheus network failure → HTTP 502
 - upstream failure 후 API process 유지
 - 기존 `GET /metrics` regression 없음
+
+WBS 4.4에서 Incident 시각 전후 HTTP average latency를 계산하는 최소 metric summary를 구현했다.
+
+Chronos API endpoint:
+
+- `GET /metrics/summary`
+
+query parameters:
+
+- `incidentAt`
+- `windowSeconds`
+
+현재 `incidentAt`은 실제 Incident DB/API와 아직 연결하지 않고
+Unix timestamp seconds를 요청에서 직접 전달받는다.
+
+구간:
+
+```text
+before = [incidentAt - windowSeconds, incidentAt]
+after  = [incidentAt, incidentAt + windowSeconds]
+```
+
+사용 PromQL:
+
+```text
+sum(chronos_http_request_duration_seconds_sum)
+sum(chronos_http_request_duration_seconds_count)
+```
+
+HTTP latency Histogram은 `method`, `status_code` label에 따라
+여러 time-series가 존재할 수 있으므로 PromQL `sum(...)`에서 먼저 aggregate한다.
+
+각 window에서 cumulative counter의 절대값을 직접 평균내지 않고
+다음 delta를 계산한다.
+
+```text
+sumDelta = last(sum counter) - first(sum counter)
+countDelta = last(count counter) - first(count counter)
+averageLatency = sumDelta / countDelta
+```
+
+응답에는 before/after 각각 다음 값을 포함한다.
+
+- `averageLatency`
+- `requestCount`
+- `start`
+- `end`
+
+계산 불가능한 metric window를 정상적인 `0` latency로 취급하지 않는다.
+
+다음 상태는 계산 불가로 처리한다.
+
+- aggregate series 없음 또는 1개가 아님
+- sample 2개 미만
+- 유효하지 않은 숫자 sample
+- counter decrease/reset
+- `countDelta <= 0`
+- 유효하지 않은 average latency
+
+기존 `apps/api/src/prometheus.ts`의 `queryPrometheusRange()`를 재사용하고,
+raw Prometheus metric time-series는 PostgreSQL에 저장하지 않는다.
+
+실제 검증에서 Windows host에서 생성한 Unix `incidentAt`을 그대로 사용해
+`GET /metrics/summary`가 정상 응답하는 것을 확인했다.
+
+검증된 예:
+
+- before `averageLatency = 0.019259571428571414`
+- before `requestCount = 7`
+- after `averageLatency = 0.008437999999999987`
+- after `requestCount = 8`
+
+Metric summary는 Incident 전후 관측 값을 보여줄 뿐,
+latency 변화가 Incident의 원인이라고 판단하지 않는다.
 
 GitHub 처리 흐름:
 
@@ -392,23 +476,34 @@ infra/prometheus.yml
   - type: Histogram
   - labels: `method`, `status_code`
 
-metric collection 흐름:
+### Metric exposure / scrape
 
 ```text
+HTTP request
+→ Chronos API Counter / Histogram 갱신
+
 Prometheus
-↓ scrape GET /metrics
-Chronos API
+→ GET Chronos API /metrics
+→ raw metric time-series 저장
 ```
 
-WBS 4.3에서 구현된 query 흐름:
+Prometheus가 Chronos API를 pull 방식으로 scrape하며 현재 scrape interval은 `15s`다.
+
+`/metrics` 요청 자체는 application HTTP metric에서 제외한다.
+Prometheus가 metric을 측정하기 위해 수행하는 scrape 요청 자체가
+application HTTP metric을 계속 증가시키는 것을 방지하기 위함이다.
+
+### Metric query
 
 ```text
 Chronos API
-↓ Prometheus HTTP API query
-Prometheus
+→ Prometheus HTTP API /api/v1/query_range
+→ matrix time-series 반환
 ```
 
-두 흐름은 서로 다른 역할이며 scrape 방향과 query 방향을 혼동하지 않는다.
+Chronos는 metric이 필요할 때 Prometheus를 query한다.
+`query_range`가 15초마다 주기적으로 실행되는 것이 아니다.
+주기적으로 실행되는 것은 Prometheus → Chronos API `/metrics` scrape다.
 
 Prometheus query endpoint:
 
@@ -417,13 +512,119 @@ Prometheus query endpoint:
 - env: `PROMETHEUS_URL`
 - default: `http://localhost:9090`
 
-검증된 PromQL 및 query 상태:
+기존 client `apps/api/src/prometheus.ts` 책임:
 
-- `up`
-- `up{job="prometheus"}`
-- `up{job="chronos-api"}` = 1
-- `chronos_http_requests_total`
-- `chronos_http_request_duration_seconds_count`
+- Prometheus HTTP API 호출
+- `query`
+- `start`
+- `end`
+- `step`
+- response JSON validation
+- `matrix` result parsing
+- label 보존
+- `[timestamp, value]` sample 보존
+- upstream/network error mapping
+
+Prometheus query 결과와 raw metric time-series는 Chronos PostgreSQL에 저장하지 않는다.
+
+### Metric summary
+
+```text
+incidentAt ± windowSeconds
+        ↓
+before / after window 생성
+        ↓
+queryPrometheusRange()
+        ↓
+sum(_sum), sum(_count)
+        ↓
+각 cumulative counter delta 계산
+        ↓
+before / after average latency 계산
+```
+
+before:
+
+```text
+[incidentAt - windowSeconds, incidentAt]
+```
+
+after:
+
+```text
+[incidentAt, incidentAt + windowSeconds]
+```
+
+사용 metric:
+
+```text
+sum(chronos_http_request_duration_seconds_sum)
+sum(chronos_http_request_duration_seconds_count)
+```
+
+HTTP latency Histogram에는 `method`, `status_code` label에 따라 여러 time-series가 존재할 수 있다.
+Chronos v0.1의 metric summary는 전체 HTTP 요청에 대한 latency를 계산하므로
+Prometheus query 시점에 `sum(...)`으로 이 series들을 하나로 aggregate한다.
+이 aggregate 결과도 Chronos가 별도 저장하지 않는다.
+
+계산식:
+
+```text
+sumDelta = last(sum counter) - first(sum counter)
+countDelta = last(count counter) - first(count counter)
+averageLatency = sumDelta / countDelta
+```
+
+`_sum`과 `_count`는 cumulative 값이므로 `lastSum / lastCount`를 계산하면
+해당 before/after window 평균이 아니라 metric 수집 시작 이후 누적 평균에 가까운 값이 된다.
+따라서 window 안에서 증가한 delta를 사용한다.
+
+다음 상태는 계산 불가로 처리한다.
+
+- aggregate series 없음
+- aggregate series가 1개가 아님
+- sample 2개 미만
+- sample value가 유효한 숫자가 아님
+- counter 감소/reset 감지
+- `countDelta <= 0`
+- 계산된 average latency가 유효하지 않음
+
+`countDelta = 0`인 경우 `averageLatency = 0`으로 반환하지 않는다.
+이는 응답 시간이 0초였다는 뜻이 아니라 해당 window에서 계산 가능한 HTTP request가 없다는 의미다.
+
+현재 `incidentAt`은 실제 Incident API와 연결되어 있지 않고
+`GET /metrics/summary` 요청에서 직접 전달받는 Unix timestamp seconds다.
+
+```text
+GET /metrics/summary
+?incidentAt=<unix seconds>
+&windowSeconds=<positive integer>
+```
+
+아직 다음 동작은 존재하지 않는다.
+
+- incident_id를 받아 DB에서 Incident 조회
+- incidents.started_at 자동 사용
+- Incident 생성/종료 API
+- 자동 Incident detection
+
+현재 Prometheus는 Chronos의 Common Event Source가 아니라 Metric Store로 사용한다.
+
+역할 구분:
+
+```text
+Docker / GitHub Event
+→ PostgreSQL
+
+raw metric time-series
+→ Prometheus
+```
+
+Metric Summary는 Incident 전후 관측 값을 보여줄 뿐 root cause를 주장하지 않는다.
+예를 들어 after latency가 증가해도 이를 Incident 원인이라고 해석하지 않는다.
+
+검증 완료:
+
 - `chronos_http_requests_total` range query
 - 서로 다른 `start` / `end` 범위 조회
 - matrix result parsing
@@ -433,17 +634,9 @@ Prometheus query endpoint:
 - Prometheus network failure → HTTP 502
 - upstream failure 후 API process 유지
 - 기존 `GET /metrics` regression 없음
-
-현재 Prometheus는 Chronos의 Common Event Source가 아니라
-Metric Store로 사용한다.
-
-현재 Prometheus는 자체 metric과
-Chronos API application metric을 수집한다.
-
-아직 구현하지 않은 것:
-
-- WBS 4.4 Incident 전후 metric summary
-- Incident 기준 before/after metric 계산
+- `GET /metrics/summary` 정상 응답
+- before/after average latency numeric value 반환
+- before/after requestCount > 0
 
 ---
 
@@ -485,10 +678,20 @@ downstream logic에 노출되지 않도록 한다.
 
 ## Next Work
 
-현재 Worker에게 할당된 다음 WBS는 없다.
+Last approved WBS:
+
+- WBS 4.4 장애 전후 metric summary
+
+Current assigned WBS:
+
+- 없음
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
-Supervisor가 기존 WBS를 확인한 뒤 명시적으로 지정한다.
+Supervisor가 새 Worker에게 다음 WBS를 별도로 명시적으로 할당한다.
+
+Next Supervisor action:
+
+- 새 Worker 전환 및 다음 WBS 명시적 할당
 
 불필요한 전체 API restructuring은 하지 않는다.
 
