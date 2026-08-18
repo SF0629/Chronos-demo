@@ -23,6 +23,7 @@
 - 5.1 Incident 생성/종료 API — 완료
 - 5.2 Correlation 규칙 설계 — 완료
 - 5.3 관련 Event 계산 구현 — 완료
+- 6.1 UI 와이어프레임 — 완료
 
 ### Current Assigned
 
@@ -30,7 +31,7 @@
 
 Last approved WBS:
 
-- WBS 5.3 관련 Event 계산 구현
+- WBS 6.1 UI 와이어프레임
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
@@ -56,6 +57,15 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 5.1 Incident 생성/종료 API
 - WBS 5.2 Correlation 규칙 설계
 - WBS 5.3 관련 Event 계산 구현
+- WBS 6.1 UI 와이어프레임
+
+WBS 6.1에서 v0.1 UI information architecture를 확정했다.
+
+- Dashboard / Service Detail / Incident Detail의 정보 구조 확정
+- Incident Detail hierarchy: Incident Summary → Related Changes → Metric Summary → Timeline
+- Related Changes는 relevance 중심, Timeline은 chronology 중심으로 역할 분리
+- 상세 wireframe Source of Truth: `docs/UI_WIREFRAME.md`
+- 실제 UI code 구현은 아직 시작하지 않음
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤
@@ -831,7 +841,7 @@ downstream logic에 노출되지 않도록 한다.
 
 Last approved WBS:
 
-- WBS 5.3 관련 Event 계산 구현
+- WBS 6.1 UI 와이어프레임
 
 Current assigned WBS:
 

@@ -199,6 +199,40 @@ Chronos Agent
 
 ---
 
+## v0.1 UI Information Architecture
+
+WBS 6.1에서 Chronos v0.1의 세 핵심 화면 information architecture를 확정했다.
+
+- Dashboard
+  - 조사할 Service / Incident 선택
+- Service Detail
+  - 특정 Service의 Incident / Event context 확인
+- Incident Detail
+  - 장애 직전 관련 변경, metric 변화, 전체 시간 흐름 조사
+
+Incident Detail의 정보 hierarchy는 다음 순서를 사용한다.
+
+1. Incident Summary
+2. Related Changes
+3. Metric Summary
+4. Timeline
+
+UI invariant:
+
+- Related Changes = relevance 중심
+- Timeline = chronology 중심
+- correlation score = relevance score이며 probability가 아님
+- Chronos는 root cause를 확정하지 않음
+- monitoring dashboard가 아니라 investigation UI
+- desktop-first / content-first
+
+상세 wireframe의 Source of Truth는 `docs/UI_WIREFRAME.md`다.
+
+현재 `apps/web`은 아직 기본 starter 상태이며 실제 Chronos UI implementation은 시작하지 않았다.
+UI 구현은 이후 명시적으로 할당되는 WBS에서 진행한다.
+
+---
+
 ## 6. Integration Classification
 
 모든 외부 시스템을 같은 방식으로 연결하지 않는다.
@@ -1494,6 +1528,8 @@ Docker Engine reconnect와 API delivery retry는
 - 5.1 Incident 생성/종료 API
 - 5.2 Correlation 규칙 설계
 - 5.3 관련 Event 계산 구현
+
+- 6.1 UI 와이어프레임
 
 다음 작업은 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 새 Worker에게 명시적으로 지정한다.
