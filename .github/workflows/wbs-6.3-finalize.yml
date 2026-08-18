@@ -1,0 +1,33 @@
+name: WBS 6.3 docs finalization
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - .github/workflows/wbs-6.3-finalize.yml
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply verified docs patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git apply --check .github/wbs-6.3-docs.patch
+          git apply .github/wbs-6.3-docs.patch
+          rm .github/wbs-6.3-docs.patch
+          git config user.name "SnowFairy"
+          git config user.email "103726899+SF0629@users.noreply.github.com"
+          git add -A
+          git diff --cached --check
+          git commit -m "docs: record integration smoke test"
+          git push origin HEAD:dev
