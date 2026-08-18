@@ -261,6 +261,29 @@ Metric Summary는 Incident `startedAt`을 기준으로 전후 60초(`±60s`)를 
 `GET /metrics/summary`가 metric sample 부족 등으로 HTTP 422를 반환해도
 Incident page 전체 실패로 처리하지 않고 Metric Summary section-local unavailable state로 표시한다.
 
+### Incident Detail Integration Smoke Evidence
+
+WBS 6.3 integration smoke에서 하나의 Incident Detail 화면에서 다음 runtime integration이 동시에 동작함을 검증했다.
+
+```text
+GitHub / Docker Common Event
+→ runtime correlation
+→ Related Changes + Timeline
+
+Prometheus scraped application metric
+→ metric summary
+→ Incident Detail
+```
+
+GitHub / Docker ingestion 자체는 이번 WBS에서 다시 실행하지 않았다.
+이전 WBS에서 ingestion이 검증된 source를 대표하는 Common Event fixture를 사용해
+Event persistence 이후 correlation과 Incident Detail 표시 경로를 확인했다.
+
+Prometheus는 실제 runtime sample을 사용했으며 `chronos-api` target이 UP인 상태에서
+`GET /metrics/summary`가 HTTP 200으로 실제 success response를 반환하는 것을 검증했다.
+Metric Summary는 기존대로 `windowSeconds = 60`을 사용하고 before / after의
+`requestCount`와 `averageLatency`를 Incident Detail에 표시한다.
+
 ---
 
 ## 6. Integration Classification
@@ -1564,6 +1587,7 @@ Docker Engine reconnect와 API delivery retry는
 
 - 6.1 UI 와이어프레임
 - 6.2 Incident 상세 화면 골격
+- 6.3 통합 smoke test
 
 다음 작업은 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 새 Worker에게 명시적으로 지정한다.

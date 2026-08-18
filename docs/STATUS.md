@@ -25,6 +25,7 @@
 - 5.3 관련 Event 계산 구현 — 완료
 - 6.1 UI 와이어프레임 — 완료
 - 6.2 Incident 상세 화면 골격 — 완료
+- 6.3 통합 smoke test — 완료
 
 ### Current Assigned
 
@@ -32,7 +33,7 @@
 
 Last approved WBS:
 
-- WBS 6.2 Incident 상세 화면 골격
+- WBS 6.3 통합 smoke test
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
@@ -60,6 +61,7 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 5.3 관련 Event 계산 구현
 - WBS 6.1 UI 와이어프레임
 - WBS 6.2 Incident 상세 화면 골격
+- WBS 6.3 통합 smoke test
 
 WBS 6.1에서 v0.1 UI information architecture를 확정했다.
 
@@ -78,6 +80,21 @@ WBS 6.2에서 Incident Detail 실제 route와 API integration을 구현했다.
 - Timeline을 동일 correlation response의 `timeline`과 연동
 - Metric unavailable 및 correlation failure를 section-local state로 처리
 - Dashboard / Service Detail은 아직 구현하지 않음
+
+WBS 6.3에서 하나의 Incident Detail에 GitHub / Docker / Prometheus data를 함께 표시하는 integration smoke test를 완료했다.
+
+- Incident Summary / Related Changes / Metric Summary / Timeline 동시 렌더링 검증
+- 이전 WBS에서 ingestion이 검증된 GitHub / Docker source를 대표하는 Common Event fixture를 사용
+- GitHub Common Event `github.push` 표시 및 `Relevance 100/100` 검증
+- Docker Common Event `docker.container.die` 표시 및 `Relevance 54/100` 검증
+- 이번 WBS에서 GitHub Webhook 또는 Docker Agent live ingestion을 재실행한 것은 아님
+- Prometheus `chronos-api` target UP 확인
+- Chronos HTTP application metric에 실제 request traffic 73건 생성
+- `GET /metrics/summary` → HTTP 200 actual success 검증
+- metric window `windowSeconds = 60`에서 before `requestCount = 22`, after `requestCount = 30` 확인
+- before `averageLatency = 0.003846822727272732s`
+- after `averageLatency = 0.0036154333333333327s`
+- test fixture cleanup 완료: services = 0, incidents = 0, events = 0
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤
@@ -850,7 +867,7 @@ downstream logic에 노출되지 않도록 한다.
 
 Last approved WBS:
 
-- WBS 6.2 Incident 상세 화면 골격
+- WBS 6.3 통합 smoke test
 
 Current assigned WBS:
 
