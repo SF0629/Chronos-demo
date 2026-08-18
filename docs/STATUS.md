@@ -22,6 +22,7 @@
 - 4.4 장애 전후 metric summary — 완료
 - 5.1 Incident 생성/종료 API — 완료
 - 5.2 Correlation 규칙 설계 — 완료
+- 5.3 관련 Event 계산 구현 — 완료
 
 ### Current Assigned
 
@@ -29,7 +30,7 @@
 
 Last approved WBS:
 
-- WBS 5.2 Correlation 규칙 설계
+- WBS 5.3 관련 Event 계산 구현
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
@@ -54,6 +55,7 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 4.4 장애 전후 metric summary
 - WBS 5.1 Incident 생성/종료 API
 - WBS 5.2 Correlation 규칙 설계
+- WBS 5.3 관련 Event 계산 구현
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤
@@ -246,12 +248,11 @@ DB migration은 추가하지 않았다.
 현재 아직 구현하지 않은 Incident 기능:
 
 - automatic Incident detection
-- Incident ↔ Event correlation
-- Incident Timeline
-- Related Changes
 - Incident reopen
 - Incident list API
 - Incident detail API
+- Incident UI
+- Related Changes UI
 
 WBS 5.2에서 v0.1 Correlation scoring rule을 문서로 확정했다.
 
@@ -267,8 +268,75 @@ WBS 5.2에서 v0.1 Correlation scoring rule을 문서로 확정했다.
 - Related Event ranking: `score DESC` → absolute time distance `ASC` → `occurred_at DESC` → `event.id ASC`
 - `delta`는 timestamp 실제 차이를 그대로 사용하며 bucket 판정 전 round/floor/truncate/integer conversion을 하지 않음
 
-이번 WBS는 docs-only 설계이며 correlation TypeScript/SQL,
-`incident_events` persistence, API, top-N은 아직 구현하지 않았다.
+WBS 5.2에서는 설계만 수행했고,
+WBS 5.3에서 해당 D-011 규칙을 runtime correlation과 API로 구현했다.
+
+WBS 5.3에서 추가된 endpoint:
+
+- `GET /incidents/:id/correlation`
+
+현재 correlation 처리:
+
+- Incident가 존재하면 open/resolved 여부와 무관하게 조회 가능
+- same-service Event만 후보
+- `incidents.started_at` ↔ `events.occurred_at` 기준
+- Incident 시작 전 15분 / 후 5분 inclusive candidate window
+- 지원 Event type 5개만 후보
+  - `github.push`
+  - `docker.container.restart`
+  - `docker.container.die`
+  - `docker.container.stop`
+  - `docker.container.start`
+- unknown Event type 제외
+- 다른 Service Event 제외
+- D-011 time/type weight로 score 계산
+- fractional delta precision 유지
+- `relatedEvents`: score 중심 relevance ranking
+- `timeline`: chronological ordering
+- 두 배열은 동일 candidate Event 집합을 서로 다른 ordering으로 반환
+- arbitrary top-N 없음
+
+relatedEvents ordering:
+
+```text
+score DESC
+→ deltaSeconds ASC
+→ occurred_at DESC
+→ event.id ASC
+```
+
+timeline ordering:
+
+```text
+occurred_at ASC
+→ event.id ASC
+```
+
+현재 correlation은 request 시점에 동적으로 계산한다.
+`incident_events`에는 INSERT/UPDATE하지 않으며 DB migration도 추가하지 않았다.
+
+실제 PostgreSQL/API integration 검증 완료:
+
+- `GET /incidents/:id/correlation` → HTTP 200
+- invalid Incident UUID → HTTP 400
+- nonexistent Incident → HTTP 404
+- same-service filtering
+- supported Event type filtering
+- unknown Event type exclusion
+- different Service exclusion
+- before -15m boundary 포함
+- after +5m boundary 포함
+- window 밖 Event 제외
+- D-011 required score examples
+- relatedEvents ordering 및 tie-breaker
+- timeline ordering 및 tie-breaker
+- relatedEvents / timeline 동일 candidate set
+- `relatedEvents = 10`
+- `timeline = 10`
+- test fixture cleanup 완료
+  - services remaining: 0
+  - incidents remaining: 0
+  - events remaining: 0
 
 GitHub 처리 흐름:
 
@@ -379,6 +447,9 @@ chronos.service_id
 
 label을 통해 직접 `serviceId`를 얻으므로
 현재 binding table을 사용하지 않는다.
+
+`incident_events` table은 기존 schema 그대로 존재한다.
+WBS 5.3 correlation은 request 시점에 계산하며 현재 이 table에 score를 persistence하지 않는다.
 
 ---
 
@@ -760,7 +831,7 @@ downstream logic에 노출되지 않도록 한다.
 
 Last approved WBS:
 
-- WBS 5.2 Correlation 규칙 설계
+- WBS 5.3 관련 Event 계산 구현
 
 Current assigned WBS:
 

@@ -640,6 +640,10 @@ Incident N ─── M Event
 `incident_events.score`는 Event 자체의 속성이 아니라
 Incident와 Event 사이 관계의 속성이다.
 
+현재 WBS 5.3 runtime correlation은 request 시점에 계산하며
+`incident_events`에 score를 INSERT/UPDATE하지 않는다.
+따라서 table/schema는 그대로 존재하지만 아직 correlation persistence에는 사용하지 않는다.
+
 `service_source_bindings`는 외부 Resource identifier를 통해
 Chronos Service를 찾아야 하는 Source에서 사용하는 최소 mapping이다.
 
@@ -844,9 +848,140 @@ Related Changes
 → relevance score 중심
 ```
 
-WBS 5.2에서는 top-N 개수를 정하지 않는다.
-또한 correlation TypeScript/SQL 구현, `incident_events` persistence,
-API endpoint, Metric Summary 연동은 수행하지 않는다.
+WBS 5.2에서는 설계만 수행했고,
+WBS 5.3에서 D-011을 따르는 runtime correlation과 API를 구현했다.
+현재도 `incident_events` persistence, arbitrary top-N,
+Metric Summary 자동 연동은 구현하지 않는다.
+
+### Runtime Correlation
+
+현재 endpoint:
+
+```text
+GET /incidents/:id/correlation
+```
+
+처리 흐름:
+
+```text
+Incident id
+↓
+Incident 조회
+↓
+같은 Service Event 조회
+↓
+15m before / 5m after candidate filtering
+↓
+supported Event type filtering
+↓
+D-011 time/type scoring
+↓
+relatedEvents relevance ranking
++
+timeline chronological ordering
+↓
+response
+```
+
+Incident는 `open` / `resolved` 여부와 관계없이
+해당 id의 Incident가 존재하면 correlation을 조회할 수 있다.
+
+현재 runtime implementation 파일:
+
+```text
+apps/api/src/correlation.ts
+```
+
+주요 책임:
+
+- Incident 조회
+- candidate Event query
+- time weight 계산
+- type weight 계산
+- final score 계산
+- Related Event ranking
+- Timeline ordering
+
+HTTP route와 status mapping은 `apps/api/src/index.ts`가 담당한다.
+Incident UUID validation은 기존 `incidentIdSchema`를 재사용한다.
+
+PostgreSQL candidate query는 다음 조건까지 담당한다.
+
+- `event.service_id = incident.service_id`
+- `occurred_at >= started_at - 15 minutes`
+- `occurred_at <= started_at + 5 minutes`
+- 다음 supported Event type 5개만 조회
+  - `github.push`
+  - `docker.container.restart`
+  - `docker.container.die`
+  - `docker.container.stop`
+  - `docker.container.start`
+
+실제 time/type scoring과 ranking은 TypeScript에서 수행한다.
+`received_at`은 correlation 시간 계산에 사용하지 않는다.
+
+`deltaSeconds`는 실제 timestamp difference seconds를 사용한다.
+Bucket 판정 전에 round, floor, truncate 또는 integer conversion을 하지 않는다.
+`delta = 0`인 Event의 position은 `before`다.
+
+현재 response 최소 구조:
+
+```text
+incidentId
+startedAt
+window.start
+window.end
+relatedEvents
+timeline
+```
+
+각 correlated Event item:
+
+```text
+event
+score
+deltaSeconds
+position
+```
+
+`relatedEvents` ordering:
+
+1. `score DESC`
+2. `deltaSeconds ASC`
+3. `occurred_at DESC`
+4. `event.id ASC`
+
+`timeline` ordering:
+
+1. `occurred_at ASC`
+2. `event.id ASC`
+
+두 배열은 동일한 correlation candidate Event 집합을
+서로 다른 목적의 ordering으로 보여준다.
+
+현재 correlation은 request 시점에 동적으로 계산한다.
+
+```text
+Incident + Event DB state
+→ runtime correlation
+→ response
+```
+
+`incident_events`에는 INSERT/UPDATE하지 않는다.
+기존 `incident_events` table/schema는 그대로 존재하지만
+WBS 5.3에서는 persistence에 사용하지 않는다.
+DB migration도 추가하지 않았다.
+
+현재 아직 구현하지 않은 correlation 관련 기능:
+
+- automatic Incident detection
+- correlation persistence
+- arbitrary top-N
+- Prometheus metric 기반 scoring
+- metadata scoring
+- root cause determination
+- Incident UI
+- Related Changes UI
 
 ---
 
@@ -870,6 +1005,8 @@ POST /events
 POST /incidents
 
 POST /incidents/:id/resolve
+
+GET  /incidents/:id/correlation
 
 GET  /services/:id/events
 
@@ -971,8 +1108,26 @@ apps/api/src/index.ts
 = route / HTTP status mapping
 ```
 
-현재 automatic Incident detection, Incident ↔ Event correlation,
-Timeline / Related Changes, reopen, Incident list/detail API는 구현하지 않는다.
+현재 automatic Incident detection, reopen,
+Incident list/detail API와 Incident UI는 구현하지 않는다.
+
+### Incident Correlation
+
+현재 correlation endpoint:
+
+```text
+GET /incidents/:id/correlation
+```
+
+invalid Incident UUID는 HTTP 400,
+존재하지 않는 Incident는 HTTP 404,
+기존 Incident는 lifecycle status와 무관하게 HTTP 200으로 correlation을 조회할 수 있다.
+
+`apps/api/src/correlation.ts`가 Incident 조회, candidate Event query,
+D-011 scoring, Related Event ranking, Timeline ordering을 담당한다.
+
+현재 correlation 결과는 request 시점에 동적으로 계산하며
+`incident_events`에 persistence하지 않는다.
 
 ### Prometheus Metrics
 
@@ -1338,9 +1493,10 @@ Docker Engine reconnect와 API delivery retry는
 
 - 5.1 Incident 생성/종료 API
 - 5.2 Correlation 규칙 설계
+- 5.3 관련 Event 계산 구현
 
 다음 작업은 Worker가 임의로 추측하지 않는다.
-Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
+Supervisor가 기존 WBS를 확인한 뒤 새 Worker에게 명시적으로 지정한다.
 
 ---
 
@@ -1378,6 +1534,9 @@ Timeline과 관련성 높은 변화를 제공한다.
 Metric Summary 역시 Incident 전후 관측 값을 제공할 뿐
 latency 변화가 root cause라고 단정하지 않는다.
 
+Correlation score 역시 relevance score이며
+root cause probability로 해석하지 않는다.
+
 ### 5. Source-specific 정보는 metadata에 격리한다
 
 공통 필드는 Event 최상위 모델에 두고,
@@ -1397,6 +1556,7 @@ apps/api/src/
 ├─ db.ts
 ├─ events.ts
 ├─ incidents.ts
+├─ correlation.ts
 ├─ github.ts
 ├─ bindings.ts
 ├─ metrics.ts
@@ -1412,15 +1572,22 @@ apps/agent/src/
 └─ chronos.ts
 ```
 
+`apps/api/src/correlation.ts`는 현재 Incident 조회,
+candidate Event query, D-011 scoring,
+Related Event ranking과 Timeline ordering을 담당한다.
+
 `apps/api/src/prometheus.ts`는 Prometheus HTTP 통신과 응답 검증을 담당한다.
 
 `apps/api/src/metric-summary.ts`는 Prometheus range query 결과를 이용해
 incident 기준 before/after HTTP average latency를 계산하는
 최소 metric summary logic을 담당한다.
 
-두 책임을 혼동하지 않는다.
+각 책임을 혼동하지 않는다.
 
 ```text
+correlation.ts
+= Incident 주변 Event runtime correlation
+
 prometheus.ts
 = Prometheus HTTP 통신 / 응답 검증
 

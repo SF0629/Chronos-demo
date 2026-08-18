@@ -10,6 +10,7 @@ import {
 import { resolveServiceBinding } from "./bindings.js";
 import { createEvent } from "./events.js";
 import { createIncident, resolveIncident } from "./incidents.js";
+import { getIncidentCorrelation } from "./correlation.js";
 import { httpRequestDurationSeconds, httpRequestsTotal } from "./metrics.js";
 import {
     PrometheusClientError,
@@ -345,6 +346,26 @@ app.post("/incidents/:id/resolve", async (req, res) => {
     }
 
     return res.status(200).json(result.incident);
+});
+
+app.get("/incidents/:id/correlation", async (req, res) => {
+    const parsedId = incidentIdSchema.safeParse(req.params.id);
+
+    if (!parsedId.success) {
+        return res.status(400).json({
+            error: "Invalid incident id",
+        });
+    }
+
+    const correlation = await getIncidentCorrelation(parsedId.data);
+
+    if (!correlation) {
+        return res.status(404).json({
+            error: "Incident not found",
+        });
+    }
+
+    return res.status(200).json(correlation);
 });
 
 app.get("/services/:id/events", async (req, res) => {
