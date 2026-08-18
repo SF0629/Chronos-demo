@@ -24,6 +24,7 @@
 - 5.2 Correlation 규칙 설계 — 완료
 - 5.3 관련 Event 계산 구현 — 완료
 - 6.1 UI 와이어프레임 — 완료
+- 6.2 Incident 상세 화면 골격 — 완료
 
 ### Current Assigned
 
@@ -31,7 +32,7 @@
 
 Last approved WBS:
 
-- WBS 6.1 UI 와이어프레임
+- WBS 6.2 Incident 상세 화면 골격
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
@@ -58,6 +59,7 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 5.2 Correlation 규칙 설계
 - WBS 5.3 관련 Event 계산 구현
 - WBS 6.1 UI 와이어프레임
+- WBS 6.2 Incident 상세 화면 골격
 
 WBS 6.1에서 v0.1 UI information architecture를 확정했다.
 
@@ -65,7 +67,17 @@ WBS 6.1에서 v0.1 UI information architecture를 확정했다.
 - Incident Detail hierarchy: Incident Summary → Related Changes → Metric Summary → Timeline
 - Related Changes는 relevance 중심, Timeline은 chronology 중심으로 역할 분리
 - 상세 wireframe Source of Truth: `docs/UI_WIREFRAME.md`
-- 실제 UI code 구현은 아직 시작하지 않음
+
+WBS 6.2에서 Incident Detail 실제 route와 API integration을 구현했다.
+
+- route: `/incidents/:id`
+- `GET /incidents/:id`로 Incident + Service Summary 조회
+- Incident Summary 렌더링
+- Related Changes를 `GET /incidents/:id/correlation`의 `relatedEvents`와 연동
+- Metric Summary를 `GET /metrics/summary`와 연동
+- Timeline을 동일 correlation response의 `timeline`과 연동
+- Metric unavailable 및 correlation failure를 section-local state로 처리
+- Dashboard / Service Detail은 아직 구현하지 않음
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤
@@ -260,9 +272,6 @@ DB migration은 추가하지 않았다.
 - automatic Incident detection
 - Incident reopen
 - Incident list API
-- Incident detail API
-- Incident UI
-- Related Changes UI
 
 WBS 5.2에서 v0.1 Correlation scoring rule을 문서로 확정했다.
 
@@ -841,7 +850,7 @@ downstream logic에 노출되지 않도록 한다.
 
 Last approved WBS:
 
-- WBS 6.1 UI 와이어프레임
+- WBS 6.2 Incident 상세 화면 골격
 
 Current assigned WBS:
 

@@ -9,7 +9,11 @@ import {
 } from "./github.js";
 import { resolveServiceBinding } from "./bindings.js";
 import { createEvent } from "./events.js";
-import { createIncident, resolveIncident } from "./incidents.js";
+import {
+    createIncident,
+    getIncidentDetail,
+    resolveIncident,
+} from "./incidents.js";
 import { getIncidentCorrelation } from "./correlation.js";
 import { httpRequestDurationSeconds, httpRequestsTotal } from "./metrics.js";
 import {
@@ -320,6 +324,26 @@ app.post("/incidents", async (req, res) => {
     }
 
     return res.status(201).json(incident);
+});
+
+app.get("/incidents/:id", async (req, res) => {
+    const parsedId = incidentIdSchema.safeParse(req.params.id);
+
+    if (!parsedId.success) {
+        return res.status(400).json({
+            error: "Invalid incident id",
+        });
+    }
+
+    const incident = await getIncidentDetail(parsedId.data);
+
+    if (!incident) {
+        return res.status(404).json({
+            error: "Incident not found",
+        });
+    }
+
+    return res.status(200).json(incident);
 });
 
 app.post("/incidents/:id/resolve", async (req, res) => {

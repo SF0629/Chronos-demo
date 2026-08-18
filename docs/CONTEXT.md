@@ -228,8 +228,38 @@ UI invariant:
 
 상세 wireframe의 Source of Truth는 `docs/UI_WIREFRAME.md`다.
 
-현재 `apps/web`은 아직 기본 starter 상태이며 실제 Chronos UI implementation은 시작하지 않았다.
-UI 구현은 이후 명시적으로 할당되는 WBS에서 진행한다.
+WBS 6.1 시점의 `apps/web`은 기본 starter 상태였다.
+WBS 6.2에서 Incident Detail UI 구현을 시작했으며 Dashboard와 Service Detail은 아직 구현하지 않았다.
+
+### Incident Detail Runtime Integration
+
+현재 Incident Detail route:
+
+```text
+/incidents/:id
+```
+
+Web data flow:
+
+```text
+GET /incidents/:id
+→ Incident Summary
+
+GET /incidents/:id/correlation
+→ Related Changes + Timeline
+
+GET /metrics/summary
+→ Metric Summary
+```
+
+Incident page는 Next.js Server Component에서 server-only `CHRONOS_API_URL`을 사용해 Chronos API를 조회한다.
+현재 기본값은 `http://localhost:4000`이며 request-time data에는 `cache: "no-store"`를 사용한다.
+
+Metric Summary는 Incident `startedAt`을 기준으로 전후 60초(`±60s`)를 비교한다.
+이는 Event relevance를 계산하는 correlation window인 `-15m ~ +5m`과 별도의 책임이다.
+
+`GET /metrics/summary`가 metric sample 부족 등으로 HTTP 422를 반환해도
+Incident page 전체 실패로 처리하지 않고 Metric Summary section-local unavailable state로 표시한다.
 
 ---
 
@@ -1014,8 +1044,6 @@ DB migration도 추가하지 않았다.
 - Prometheus metric 기반 scoring
 - metadata scoring
 - root cause determination
-- Incident UI
-- Related Changes UI
 
 ---
 
@@ -1037,6 +1065,8 @@ GET  /events
 POST /events
 
 POST /incidents
+
+GET  /incidents/:id
 
 POST /incidents/:id/resolve
 
@@ -1136,14 +1166,17 @@ apps/api/src/schemas/incident.ts
 = HTTP input validation
 
 apps/api/src/incidents.ts
-= PostgreSQL persistence / lifecycle transition
+= PostgreSQL persistence / lifecycle transition / Incident detail query
 
 apps/api/src/index.ts
 = route / HTTP status mapping
 ```
 
-현재 automatic Incident detection, reopen,
-Incident list/detail API와 Incident UI는 구현하지 않는다.
+현재 automatic Incident detection, reopen, Incident list API는 구현하지 않는다.
+
+WBS 6.2에서 `GET /incidents/:id` Incident detail endpoint를 추가했다.
+이 endpoint는 Incident Detail UI에 필요한 Incident + Service summary만 반환하며,
+correlation 책임은 기존 `GET /incidents/:id/correlation`에 유지한다.
 
 ### Incident Correlation
 
@@ -1530,6 +1563,7 @@ Docker Engine reconnect와 API delivery retry는
 - 5.3 관련 Event 계산 구현
 
 - 6.1 UI 와이어프레임
+- 6.2 Incident 상세 화면 골격
 
 다음 작업은 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 새 Worker에게 명시적으로 지정한다.

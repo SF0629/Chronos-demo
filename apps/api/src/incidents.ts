@@ -58,3 +58,62 @@ export async function resolveIncident(
 
     return { kind: "already_resolved" };
 }
+
+type IncidentDetailRow = {
+    id: string;
+    service_id: string;
+    service_name: string;
+    title: string;
+    status: "open" | "resolved";
+    started_at: Date;
+    resolved_at: Date | null;
+    trigger_type: string;
+};
+
+export type IncidentDetail = {
+    id: string;
+    serviceId: string;
+    serviceName: string;
+    title: string;
+    status: "open" | "resolved";
+    startedAt: string;
+    resolvedAt: string | null;
+    triggerType: string;
+};
+
+export async function getIncidentDetail(
+    incidentId: string,
+): Promise<IncidentDetail | null> {
+    const result = await pool.query(
+        `SELECT
+             incidents.id,
+             incidents.service_id,
+             services.name AS service_name,
+             incidents.title,
+             incidents.status,
+             incidents.started_at,
+             incidents.resolved_at,
+             incidents.trigger_type
+         FROM incidents
+         JOIN services ON services.id = incidents.service_id
+         WHERE incidents.id = $1;`,
+        [incidentId],
+    );
+
+    const incident = result.rows[0] as IncidentDetailRow | undefined;
+
+    if (!incident) {
+        return null;
+    }
+
+    return {
+        id: incident.id,
+        serviceId: incident.service_id,
+        serviceName: incident.service_name,
+        title: incident.title,
+        status: incident.status,
+        startedAt: incident.started_at.toISOString(),
+        resolvedAt: incident.resolved_at?.toISOString() ?? null,
+        triggerType: incident.trigger_type,
+    };
+}
