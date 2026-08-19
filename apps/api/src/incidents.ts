@@ -63,6 +63,7 @@ type IncidentDetailRow = {
     id: string;
     service_id: string;
     service_name: string;
+    prometheus_job: string | null;
     title: string;
     status: "open" | "resolved";
     started_at: Date;
@@ -74,6 +75,7 @@ export type IncidentDetail = {
     id: string;
     serviceId: string;
     serviceName: string;
+    prometheusJob: string | null;
     title: string;
     status: "open" | "resolved";
     startedAt: string;
@@ -89,6 +91,7 @@ export async function getIncidentDetail(
              incidents.id,
              incidents.service_id,
              services.name AS service_name,
+             services.prometheus_job,
              incidents.title,
              incidents.status,
              incidents.started_at,
@@ -110,6 +113,7 @@ export async function getIncidentDetail(
         id: incident.id,
         serviceId: incident.service_id,
         serviceName: incident.service_name,
+        prometheusJob: incident.prometheus_job,
         title: incident.title,
         status: incident.status,
         startedAt: incident.started_at.toISOString(),

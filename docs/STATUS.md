@@ -27,6 +27,7 @@
 - 6.2 Incident 상세 화면 골격 — 완료
 - 6.3 통합 smoke test — 완료
 - 7.1 Demo App 및 장애 시나리오 제작 — 완료
+- 7.2 End-to-End Incident 완성 — 완료
 
 ### Current Assigned
 
@@ -34,7 +35,7 @@
 
 Last approved WBS:
 
-- WBS 7.1 Demo App 및 장애 시나리오 제작
+- WBS 7.2 End-to-End Incident 완성
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
@@ -64,6 +65,7 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 6.2 Incident 상세 화면 골격
 - WBS 6.3 통합 smoke test
 - WBS 7.1 Demo App 및 장애 시나리오 제작
+- WBS 7.2 End-to-End Incident 완성
 
 WBS 6.1에서 v0.1 UI information architecture를 확정했다.
 
@@ -114,6 +116,29 @@ WBS 7.1에서 재현 가능한 latency fault demo workload와 scenario를 추가
 - Run 3: baseline `0.0202s`, fault `0.6006s`, `29.69x` — PASS
 - 동일 scenario 3회 실행 결과 `3 / 3 PASS`
 - scenario finally restore 후 `GET /health`의 `delayMs = 20` 재확인
+
+WBS 7.2에서 수동 DB 수정 없이 실제 ingestion / correlation / metric / Incident Detail 흐름을 연결했다.
+
+- `POST /services`를 통한 generic Service bootstrap
+- `PUT /services/:id/source-bindings`를 통한 generic source binding upsert
+- demo setup에 `psql` 또는 직접 SQL fixture를 사용하지 않음
+- demo-app의 기존 `chronos.service_id` Docker label contract를 유지하고 `CHRONOS_DEMO_SERVICE_ID` Compose interpolation으로 runtime Service ID 주입
+- `GET /incidents/:id/metric-summary` 추가
+- `services.prometheus_job`을 기준으로 Incident Service의 metric target 선택
+- PromQL에 Service의 `job` selector를 적용해 다른 target metric과 혼합하지 않음
+- `demo_*`와 `chronos_*` metric namespace를 그대로 분리
+- container recreate에 따른 cumulative counter reset을 Incident-aware summary에서 정상 restart/recreate로 처리
+- Incident Detail의 Metric Summary가 Incident ID 기반 service-aware endpoint를 사용
+- signed GitHub push replay가 실제 `/webhooks/github` HMAC validation과 GitHub ingestion/persistence path를 통과
+- Docker Event는 기존 Host Agent의 실제 ingestion path를 통해 persistence
+- automatic detection을 추가하지 않고 기존 manual Incident trigger 유지
+- 동일 Incident correlation에서 GitHub Event와 Docker Event 확인
+- service-aware Metric Summary 성공
+- Incident Detail 전체 path 성공
+- 사용자 local `scripts/demo-e2e-incident.ps1` 실행 결과 `Final Result: PASS`
+- 처음부터 끝까지 수동 DB INSERT / UPDATE / DELETE 없이 E2E 1회 성공
+- scenario 종료 후 `GITHUB_WEBHOOK_SECRET`, `CHRONOS_DEMO_SERVICE_ID` temporary env 제거/복구 확인
+- healthy restore 후 demo-app `delayMs = 20` 확인
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤
@@ -886,7 +911,7 @@ downstream logic에 노출되지 않도록 한다.
 
 Last approved WBS:
 
-- WBS 7.1 Demo App 및 장애 시나리오 제작
+- WBS 7.2 End-to-End Incident 완성
 
 Current assigned WBS:
 

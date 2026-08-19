@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import {
   getIncidentCorrelation,
   getIncidentDetail,
-  getMetricSummary,
+  getIncidentMetricSummary,
   type CorrelatedEvent,
   type HttpLatencyMetricSummary,
   type IncidentCorrelation,
@@ -345,10 +345,9 @@ export default async function IncidentPage({
     notFound();
   }
 
-  const incidentAt = new Date(incident.startedAt).getTime() / 1000;
   const [correlationResult, metricResult] = await Promise.allSettled([
     getIncidentCorrelation(id),
-    getMetricSummary(incidentAt, METRIC_WINDOW_SECONDS),
+    getIncidentMetricSummary(id, METRIC_WINDOW_SECONDS),
   ]);
 
   const correlation =

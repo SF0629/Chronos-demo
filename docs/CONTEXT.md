@@ -213,6 +213,37 @@ HTTP:
 `GET /work`는 `DEMO_DELAY_MS`만큼 기다린 뒤 정상 응답한다.
 healthy configuration은 `20ms`, fault configuration은 `600ms`다.
 
+### v0.1 Service Bootstrap / Source Association
+
+WBS 7.2에서 E2E demo에 필요한 Service와 external source association을 DB 직접 수정 없이 만들 수 있도록 generic API를 추가했다.
+
+Service bootstrap:
+
+```text
+POST /services
+```
+
+Service의 `prometheus_job`은 Incident metric target selection에 사용한다.
+API JSON contract에서는 `prometheusJob`으로 노출한다.
+
+Source binding upsert:
+
+```text
+PUT /services/:id/source-bindings
+```
+
+이 endpoint는 `service_source_bindings`를 generic upsert하며 GitHub repository 같은 external source를 Service에 연결한다.
+demo-only seed/setup API가 아니다.
+
+Docker association은 기존 Host Agent contract를 유지한다.
+
+```text
+container label: chronos.service_id
+```
+
+Demo App E2E에서는 Compose interpolation인 `CHRONOS_DEMO_SERVICE_ID`로 runtime Service ID를 label에 주입한다.
+Agent가 source binding API를 직접 조회하는 구조로 변경하지 않는다.
+
 ---
 
 ## v0.1 UI Information Architecture
@@ -264,18 +295,20 @@ GET /incidents/:id
 GET /incidents/:id/correlation
 → Related Changes + Timeline
 
-GET /metrics/summary
+GET /incidents/:id/metric-summary
 → Metric Summary
 ```
 
 Incident page는 Next.js Server Component에서 server-only `CHRONOS_API_URL`을 사용해 Chronos API를 조회한다.
 현재 기본값은 `http://localhost:4000`이며 request-time data에는 `cache: "no-store"`를 사용한다.
 
-Metric Summary는 Incident `startedAt`을 기준으로 전후 60초(`±60s`)를 비교한다.
+Metric Summary는 Incident ID를 `GET /incidents/:id/metric-summary`에 전달한다.
+API는 Incident → Service → `prometheus_job`을 따라 metric target을 고정하고 Incident `startedAt`을 기준으로 전후 60초(`±60s`)를 비교한다.
 이는 Event relevance를 계산하는 correlation window인 `-15m ~ +5m`과 별도의 책임이다.
 
-`GET /metrics/summary`가 metric sample 부족 등으로 HTTP 422를 반환해도
+Incident-aware metric summary가 metric sample 부족 등으로 HTTP 422를 반환해도
 Incident page 전체 실패로 처리하지 않고 Metric Summary section-local unavailable state로 표시한다.
+기존 `GET /metrics/summary`는 backwards compatibility를 위해 유지한다.
 
 ### Incident Detail Integration Smoke Evidence
 
@@ -562,11 +595,8 @@ metric 수집 시작 이후 누적 평균에 가까운 값이 된다.
 이는 응답 시간이 0초였다는 뜻이 아니라 해당 window에서
 계산 가능한 HTTP request가 없다는 의미이기 때문이다.
 
-WBS 5.1에서 Incident 생성/종료 API가 구현되었지만,
-`GET /metrics/summary`는 아직 실제 Incident DB와 자동 연결되어 있지 않다.
-
-현재도 `incidentAt`은 `/metrics/summary` 요청에서 직접 전달받는
-Unix timestamp seconds를 사용한다.
+기존 generic `GET /metrics/summary`는 compatibility를 위해 유지하며
+`incidentAt`을 요청 query에서 직접 전달받는 contract도 그대로 유지한다.
 
 ```text
 GET /metrics/summary
@@ -574,11 +604,10 @@ GET /metrics/summary
 &windowSeconds=<positive integer>
 ```
 
-아직 다음 동작은 존재하지 않는다.
+WBS 7.2에서는 이 기존 endpoint를 깨지 않고 별도의 `GET /incidents/:id/metric-summary`를 추가해
+Incident DB lookup, `incidents.started_at`, Service `prometheus_job`을 자동으로 사용한다.
 
-- incident_id를 받아 DB에서 Incident 조회
-- incidents.started_at 자동 사용
-- automatic Incident detection
+automatic Incident detection은 아직 구현하지 않는다.
 
 Metric Summary는 Incident 전후에 관측된 latency 값을 보여줄 뿐
 latency 변화가 Incident의 원인이라고 주장하지 않는다.
@@ -623,8 +652,58 @@ healthy deployment (20ms)
 ```
 
 Demo metric namespace는 Chronos API의 `chronos_*` application metric과 분리한다.
-WBS 7.1에서는 Demo metric을 Incident Metric Summary와 연결하지 않는다.
-GitHub / Docker / Incident까지 포함하는 full E2E demo는 WBS 7.2 범위다.
+WBS 7.1에서는 Demo metric을 Incident Metric Summary와 연결하지 않았다.
+
+#### Incident-aware metric summary
+
+WBS 7.2에서 Service의 metric target과 Incident를 연결하는 endpoint를 추가했다.
+
+```text
+GET /incidents/:id/metric-summary?windowSeconds=60
+```
+
+흐름:
+
+```text
+Incident
+→ Service
+→ services.prometheus_job
+→ job-scoped HTTP latency metric
+→ before / after Metric Summary
+```
+
+PromQL에는 Service의 `job` selector를 반드시 포함한다.
+HTTP latency metric family는 해당 job 내부의 `*_http_request_duration_seconds_sum` / `*_count`를 선택하므로 `demo_*`와 `chronos_*` metric을 global aggregate하지 않는다.
+
+Fault deployment처럼 process/container recreate가 발생하면 Prometheus cumulative counter가 reset될 수 있다.
+Incident-aware summary는 sampled counter가 감소한 지점을 reset으로 해석하고 reset 이후 현재 값부터 증가량을 다시 누적한다.
+따라서 reset을 단순한 negative `last - first` delta로 처리하지 않는다.
+
+기존 `GET /metrics/summary` contract는 compatibility를 위해 유지한다.
+
+#### WBS 7.2 E2E validation boundary
+
+검증 narrative:
+
+```text
+Service bootstrap
+→ signed GitHub push replay
+→ actual GitHub webhook HMAC validation / persistence
+→ Docker deployment/recreate
+→ Host Agent Docker Event persistence
+→ metric change
+→ manual Incident
+→ Related Changes + Metric Summary + Timeline
+→ Incident Detail
+```
+
+외부 GitHub의 live delivery를 재실행한 것은 아니다.
+local script가 실제 전송 body에 대한 HMAC-SHA256 signature를 생성해 production `POST /webhooks/github` ingestion path를 통과시키는 signed replay를 사용했다.
+Docker Event는 기존 Host Agent의 실제 ingestion path를 사용했다.
+
+WBS 7.2 user-local E2E는 수동 DB INSERT / UPDATE / DELETE 없이 `Final Result: PASS`까지 성공했다.
+automatic Incident detection은 추가하지 않았고 기존 manual Incident trigger를 유지한다.
+Chronos는 correlation과 metric 변화를 조사 context로 보여주며 이를 root cause라고 단정하지 않는다.
 
 ### Discord
 
@@ -1132,6 +1211,9 @@ GET  /metrics/query-range
 
 GET  /metrics/summary
 
+POST /services
+PUT  /services/:id/source-bindings
+
 GET  /events
 
 POST /events
@@ -1143,6 +1225,7 @@ GET  /incidents/:id
 POST /incidents/:id/resolve
 
 GET  /incidents/:id/correlation
+GET  /incidents/:id/metric-summary
 
 GET  /services/:id/events
 
@@ -1639,6 +1722,7 @@ Docker Engine reconnect와 API delivery retry는
 - 6.3 통합 smoke test
 
 - 7.1 Demo App 및 장애 시나리오 제작
+- 7.2 End-to-End Incident 완성
 
 다음 작업은 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 새 Worker에게 명시적으로 지정한다.
@@ -1704,12 +1788,15 @@ apps/api/src/
 ├─ correlation.ts
 ├─ github.ts
 ├─ bindings.ts
+├─ services.ts
 ├─ metrics.ts
 ├─ prometheus.ts
 ├─ metric-summary.ts
 └─ schemas/
    ├─ event.ts
-   └─ incident.ts
+   ├─ incident.ts
+   ├─ service.ts
+   └─ binding.ts
 
 apps/agent/src/
 ├─ index.ts
@@ -1723,9 +1810,11 @@ Related Event ranking과 Timeline ordering을 담당한다.
 
 `apps/api/src/prometheus.ts`는 Prometheus HTTP 통신과 응답 검증을 담당한다.
 
+`apps/api/src/services.ts`는 generic Service bootstrap persistence를 담당하고,
+`apps/api/src/bindings.ts`는 source binding resolution과 generic upsert를 담당한다.
+
 `apps/api/src/metric-summary.ts`는 Prometheus range query 결과를 이용해
-incident 기준 before/after HTTP average latency를 계산하는
-최소 metric summary logic을 담당한다.
+incident 기준 before/after HTTP average latency를 계산하며, WBS 7.2의 Incident-aware 경로에서는 Service `prometheus_job`으로 query를 scope하고 counter reset을 누적 증가량으로 처리한다.
 
 각 책임을 혼동하지 않는다.
 

@@ -6,6 +6,7 @@ export type IncidentDetail = {
   id: string;
   serviceId: string;
   serviceName: string;
+  prometheusJob: string | null;
   title: string;
   status: "open" | "resolved";
   startedAt: string;
@@ -132,6 +133,33 @@ export async function getMetricSummary(
   if (!response.ok) {
     throw new ChronosApiError(
       `Unable to load metric summary (${response.status})`,
+      response.status,
+    );
+  }
+
+  return (await response.json()) as HttpLatencyMetricSummary;
+}
+
+export async function getIncidentMetricSummary(
+  incidentId: string,
+  windowSeconds: number,
+): Promise<HttpLatencyMetricSummary | null> {
+  const params = new URLSearchParams({
+    windowSeconds: String(windowSeconds),
+  });
+
+  const response = await fetch(
+    `${CHRONOS_API_URL}/incidents/${encodeURIComponent(incidentId)}/metric-summary?${params.toString()}`,
+    { cache: "no-store" },
+  );
+
+  if (response.status === 422) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new ChronosApiError(
+      `Unable to load incident metric summary (${response.status})`,
       response.status,
     );
   }

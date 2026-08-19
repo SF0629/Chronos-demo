@@ -2,13 +2,16 @@ import express from "express";
 import { pool } from "./db.js";
 import { createEventSchema } from "./schemas/event.js";
 import { createIncidentSchema, incidentIdSchema } from "./schemas/incident.js";
+import { createServiceSchema, serviceIdSchema } from "./schemas/service.js";
+import { upsertServiceBindingSchema } from "./schemas/binding.js";
 import {
     normalizeGitHubPush,
     type GitHubPushPayload,
     verifyGitHubSignature,
 } from "./github.js";
-import { resolveServiceBinding } from "./bindings.js";
+import { resolveServiceBinding, upsertServiceBinding } from "./bindings.js";
 import { createEvent } from "./events.js";
+import { createService } from "./services.js";
 import {
     createIncident,
     getIncidentDetail,
@@ -22,6 +25,7 @@ import {
 } from "./prometheus.js";
 import {
     getHttpLatencyMetricSummary,
+    getJobScopedHttpLatencyMetricSummary,
     MetricSummaryUnavailableError,
 } from "./metric-summary.js";
 import { register } from "prom-client";
@@ -279,6 +283,53 @@ app.get("/health", async (req, res) => {
     res.json({ status: "ok", database: "connected" });
 });
 
+app.post("/services", async (req, res) => {
+    const parsed = createServiceSchema.safeParse(req.body);
+
+    if (!parsed.success) {
+        return res.status(400).json({
+            error: "Invalid service",
+            details: parsed.error.issues,
+        });
+    }
+
+    const service = await createService(parsed.data);
+
+    return res.status(201).json(service);
+});
+
+app.put("/services/:id/source-bindings", async (req, res) => {
+    const parsedId = serviceIdSchema.safeParse(req.params.id);
+
+    if (!parsedId.success) {
+        return res.status(400).json({
+            error: "Invalid service id",
+        });
+    }
+
+    const parsedBinding = upsertServiceBindingSchema.safeParse(req.body);
+
+    if (!parsedBinding.success) {
+        return res.status(400).json({
+            error: "Invalid service source binding",
+            details: parsedBinding.error.issues,
+        });
+    }
+
+    const binding = await upsertServiceBinding(
+        parsedId.data,
+        parsedBinding.data,
+    );
+
+    if (!binding) {
+        return res.status(404).json({
+            error: "Service not found",
+        });
+    }
+
+    return res.status(200).json(binding);
+});
+
 app.get("/events", async (req, res) => {
     const result = await pool.query(`
         SELECT *
@@ -344,6 +395,79 @@ app.get("/incidents/:id", async (req, res) => {
     }
 
     return res.status(200).json(incident);
+});
+
+app.get("/incidents/:id/metric-summary", async (req, res) => {
+    const parsedId = incidentIdSchema.safeParse(req.params.id);
+
+    if (!parsedId.success) {
+        return res.status(400).json({
+            error: "Invalid incident id",
+        });
+    }
+
+    const windowSecondsRaw =
+        typeof req.query.windowSeconds === "string"
+            ? req.query.windowSeconds.trim()
+            : "";
+
+    const windowSeconds = Number(windowSecondsRaw);
+
+    if (!Number.isInteger(windowSeconds) || windowSeconds <= 0) {
+        return res.status(400).json({
+            error: "windowSeconds must be a positive integer",
+        });
+    }
+
+    const incident = await getIncidentDetail(parsedId.data);
+
+    if (!incident) {
+        return res.status(404).json({
+            error: "Incident not found",
+        });
+    }
+
+    if (!incident.prometheusJob) {
+        return res.status(422).json({
+            error: "Incident service has no Prometheus job",
+        });
+    }
+
+    const incidentAt = new Date(incident.startedAt).getTime() / 1000;
+
+    try {
+        const summary = await getJobScopedHttpLatencyMetricSummary(
+            incidentAt,
+            windowSeconds,
+            incident.prometheusJob,
+        );
+
+        return res.status(200).json(summary);
+    } catch (error) {
+        if (error instanceof MetricSummaryUnavailableError) {
+            return res.status(422).json({
+                error: error.message,
+            });
+        }
+
+        if (error instanceof PrometheusClientError) {
+            return res.status(error.statusCode).json({
+                error: error.message,
+                ...(error.errorType
+                    ? { errorType: error.errorType }
+                    : {}),
+            });
+        }
+
+        console.error(
+            "[metrics] unexpected incident metric summary error",
+            error,
+        );
+
+        return res.status(500).json({
+            error: "Incident metric summary failed",
+        });
+    }
 });
 
 app.post("/incidents/:id/resolve", async (req, res) => {

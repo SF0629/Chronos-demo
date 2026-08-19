@@ -36,6 +36,8 @@ services:
         restart: unless-stopped
         environment:
             DEMO_DELAY_MS: "20"
+        labels:
+            chronos.service_id: "${CHRONOS_DEMO_SERVICE_ID:-}"
         ports:
             - "4100:4100"
 
