@@ -28,5 +28,16 @@ services:
         volumes:
             - "./prometheus.yml:/etc/prometheus/prometheus.yml:ro"
 
+    demo-app:
+        build:
+            context: ..
+            dockerfile: apps/demo-app/Dockerfile
+        container_name: chronos-demo-app
+        restart: unless-stopped
+        environment:
+            DEMO_DELAY_MS: "20"
+        ports:
+            - "4100:4100"
+
 volumes:
     chronos-postgres-data:

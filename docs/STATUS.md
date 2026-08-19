@@ -26,6 +26,7 @@
 - 6.1 UI 와이어프레임 — 완료
 - 6.2 Incident 상세 화면 골격 — 완료
 - 6.3 통합 smoke test — 완료
+- 7.1 Demo App 및 장애 시나리오 제작 — 완료
 
 ### Current Assigned
 
@@ -33,7 +34,7 @@
 
 Last approved WBS:
 
-- WBS 6.3 통합 smoke test
+- WBS 7.1 Demo App 및 장애 시나리오 제작
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
@@ -62,6 +63,7 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 6.1 UI 와이어프레임
 - WBS 6.2 Incident 상세 화면 골격
 - WBS 6.3 통합 smoke test
+- WBS 7.1 Demo App 및 장애 시나리오 제작
 
 WBS 6.1에서 v0.1 UI information architecture를 확정했다.
 
@@ -95,6 +97,23 @@ WBS 6.3에서 하나의 Incident Detail에 GitHub / Docker / Prometheus data를 
 - before `averageLatency = 0.003846822727272732s`
 - after `averageLatency = 0.0036154333333333327s`
 - test fixture cleanup 완료: services = 0, incidents = 0, events = 0
+
+WBS 7.1에서 재현 가능한 latency fault demo workload와 scenario를 추가했다.
+
+- `apps/demo-app` workspace 추가, port `4100`
+- HTTP endpoint: `GET /health`, `GET /work`, `GET /metrics`
+- healthy configuration: `DEMO_DELAY_MS = 20`
+- fault configuration: `DEMO_DELAY_MS = 600`
+- Demo metric namespace: `demo_http_requests_total`, `demo_http_request_duration_seconds`
+- Prometheus `demo-app` job이 `demo-app:4100`을 scrape하며 target UP 검증
+- `infra/docker-compose.demo-fault.yml` override로 healthy → fault container recreate
+- `scripts/demo-latency-scenario.ps1`로 healthy → fault → verification → healthy restore 자동화
+- Prometheus scrape timing 추측 대신 observed request counter가 목표 count에 도달할 때까지 기다린 뒤 cumulative sum/count delta로 평균 latency 계산
+- Run 1: baseline `0.0204s`, fault `0.6008s`, `29.42x` — PASS
+- Run 2: baseline `0.0204s`, fault `0.6006s`, `29.41x` — PASS
+- Run 3: baseline `0.0202s`, fault `0.6006s`, `29.69x` — PASS
+- 동일 scenario 3회 실행 결과 `3 / 3 PASS`
+- scenario finally restore 후 `GET /health`의 `delayMs = 20` 재확인
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤
@@ -867,7 +886,7 @@ downstream logic에 노출되지 않도록 한다.
 
 Last approved WBS:
 
-- WBS 6.3 통합 smoke test
+- WBS 7.1 Demo App 및 장애 시나리오 제작
 
 Current assigned WBS:
 

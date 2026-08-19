@@ -1,0 +1,4 @@
+services:
+    demo-app:
+        environment:
+            DEMO_DELAY_MS: "600"

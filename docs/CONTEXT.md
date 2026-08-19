@@ -112,7 +112,8 @@ Chronos-demo/
 ├─ apps/
 │  ├─ web/
 │  ├─ api/
-│  └─ agent/
+│  ├─ agent/
+│  └─ demo-app/
 ├─ packages/
 │  └─ shared/        # 공통 계약이 필요해질 때 사용
 ├─ infra/
@@ -196,6 +197,21 @@ Chronos Agent
 처럼 확장할 수 있다.
 
 외부 Source가 하나 추가될 때마다 별도의 Agent application을 만들지 않는다.
+
+### apps/demo-app
+
+WBS 7.1에서 추가한 재현 가능한 demo workload다.
+Chronos 제품의 business logic을 담당하지 않고 latency fault scenario를 일정하게 재현하는 용도로 사용한다.
+
+HTTP:
+
+- `GET /health`
+- `GET /work`
+- `GET /metrics`
+
+기본 port는 `4100`이다.
+`GET /work`는 `DEMO_DELAY_MS`만큼 기다린 뒤 정상 응답한다.
+healthy configuration은 `20ms`, fault configuration은 `600ms`다.
 
 ---
 
@@ -576,6 +592,39 @@ after average latency = 0.30s
 
 이 결과는 Incident 전후에 해당 latency 값이 관측되었다는 의미다.
 `latency 증가가 Incident의 원인이다`라고 해석하지 않는다.
+
+#### Demo workload / latency scenario
+
+WBS 7.1에서는 `apps/demo-app`을 Prometheus가 관찰할 수 있는 재현 가능한 workload로 사용한다.
+
+Prometheus job:
+
+```text
+demo-app
+```
+
+Demo metrics:
+
+```text
+demo_http_requests_total
+demo_http_request_duration_seconds
+```
+
+재현 흐름:
+
+```text
+healthy deployment (20ms)
+→ normal request traffic
+→ baseline metric
+→ fault deployment (600ms)
+→ latency increase
+→ Prometheus metric verification
+→ healthy restore
+```
+
+Demo metric namespace는 Chronos API의 `chronos_*` application metric과 분리한다.
+WBS 7.1에서는 Demo metric을 Incident Metric Summary와 연결하지 않는다.
+GitHub / Docker / Incident까지 포함하는 full E2E demo는 WBS 7.2 범위다.
 
 ### Discord
 
@@ -1588,6 +1637,8 @@ Docker Engine reconnect와 API delivery retry는
 - 6.1 UI 와이어프레임
 - 6.2 Incident 상세 화면 골격
 - 6.3 통합 smoke test
+
+- 7.1 Demo App 및 장애 시나리오 제작
 
 다음 작업은 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 새 Worker에게 명시적으로 지정한다.

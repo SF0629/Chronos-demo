@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+**/node_modules
+**/.next
+docs
+infra
+scripts
+apps/agent
+apps/api
+apps/web
+README.md
+supervisor.md
