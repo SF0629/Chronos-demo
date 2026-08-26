@@ -14,6 +14,35 @@ export type IncidentDetail = {
   triggerType: string;
 };
 
+export type ServiceSummary = {
+  id: string;
+  name: string;
+  description: string | null;
+  prometheusJob: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type IncidentSummary = IncidentDetail;
+
+type RawEventSummary = {
+  id: string;
+  service_id: string;
+  source: string;
+  type: string;
+  title: string;
+  occurred_at: string;
+};
+
+export type EventSummary = {
+  id: string;
+  serviceId: string;
+  source: string;
+  type: string;
+  title: string;
+  occurredAt: string;
+};
+
 type CorrelationEvent = {
   id: string;
   service_id: string;
@@ -80,6 +109,27 @@ async function fetchJson<T>(path: string): Promise<T> {
   }
 
   return (await response.json()) as T;
+}
+
+export function getServices(): Promise<ServiceSummary[]> {
+  return fetchJson<ServiceSummary[]>("/services");
+}
+
+export function getIncidents(): Promise<IncidentSummary[]> {
+  return fetchJson<IncidentSummary[]>("/incidents");
+}
+
+export async function getEvents(): Promise<EventSummary[]> {
+  const events = await fetchJson<RawEventSummary[]>("/events");
+
+  return events.map((event) => ({
+    id: event.id,
+    serviceId: event.service_id,
+    source: event.source,
+    type: event.type,
+    title: event.title,
+    occurredAt: event.occurred_at,
+  }));
 }
 
 export async function getIncidentDetail(

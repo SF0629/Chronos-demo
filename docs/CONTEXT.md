@@ -248,16 +248,46 @@ Agent가 source binding API를 직접 조회하는 구조로 변경하지 않는
 
 ## v0.1 UI Information Architecture
 
-WBS 6.1에서 Chronos v0.1의 세 핵심 화면 information architecture를 확정했다.
+WBS 6.1에서 Incident investigation의 기본 information hierarchy를 정했고, WBS 7.3에서 실제 Product navigation과 discovery UI를 완성했다.
 
-- Dashboard
-  - 조사할 Service / Incident 선택
-- Service Detail
-  - 특정 Service의 Incident / Event context 확인
-- Incident Detail
-  - 장애 직전 관련 변경, metric 변화, 전체 시간 흐름 조사
+현재 Product routes:
 
-Incident Detail의 정보 hierarchy는 다음 순서를 사용한다.
+```text
+/
+→ /dashboard
+
+/dashboard
+/incidents
+/incidents/[id]
+/services
+```
+
+Product 영역은 fixed top navigation을 사용한다.
+
+```text
+Chronos | Dashboard | Incidents | Services
+```
+
+- `/dashboard`: Open Incident / Service 요약, Needs Attention, Recent Incidents, Recent Changes
+- `/incidents`: Open / Resolved Incident discovery
+- `/services`: registered Service discovery
+- `/incidents/[id]`: Incident investigation
+
+현재 Service Detail route는 구현하지 않았다.
+
+Incident Detail은 desktop에서 left context navigation과 main investigation content를 함께 사용한다.
+모바일에서는 동일 section anchor에 접근할 수 있는 compact navigation을 사용한다.
+
+Stable anchors:
+
+```text
+#summary
+#related-changes
+#metric-summary
+#timeline
+```
+
+Incident Detail의 information hierarchy는 다음 순서를 유지한다.
 
 1. Incident Summary
 2. Related Changes
@@ -271,19 +301,43 @@ UI invariant:
 - correlation score = relevance score이며 probability가 아님
 - Chronos는 root cause를 확정하지 않음
 - monitoring dashboard가 아니라 investigation UI
-- desktop-first / content-first
+- 실제 API data만 사용하고 fake operational state를 만들지 않음
+- desktop-first이되 product navigation과 Incident section navigation은 좁은 화면에서도 접근 가능해야 함
 
-상세 wireframe의 Source of Truth는 `docs/UI_WIREFRAME.md`다.
+WBS 7.3 UI는 사용자 local visual review를 통과했으며 이후 feature-freeze 대상으로 본다.
+P0 bug fix에 반드시 필요한 경우가 아니라면 이후 WBS에서 UI 구조를 다시 디자인하지 않는다.
 
-WBS 6.1 시점의 `apps/web`은 기본 starter 상태였다.
-WBS 6.2에서 Incident Detail UI 구현을 시작했으며 Dashboard와 Service Detail은 아직 구현하지 않았다.
+### Locale / Theme prototype
+
+WBS 7.3에서는 정식 i18n/auth preference system 이전의 최소 browser preference를 제공한다.
+
+Locale:
+
+```text
+supported: en / ko
+persistence: chronos_locale cookie
+default: en
+```
+
+Theme:
+
+```text
+supported: light / dark
+persistence: chronos_theme localStorage
+default: light
+```
+
+KO localization은 모든 technical term을 번역하지 않는다.
+Chronos, Dashboard, Incidents, Services, Incident, Service, Event, GitHub, Docker, Prometheus, Metric Summary, Timeline, Relevance, Latency 등 한국 개발자에게 자연스러운 technical/product term은 영어로 유지하고, 설명/help/empty/error text는 자연스러운 한국어를 사용한다.
+
+정식 marketing site, authentication, account system, locale-prefixed routing 및 i18n framework는 아직 future scope다.
 
 ### Incident Detail Runtime Integration
 
 현재 Incident Detail route:
 
 ```text
-/incidents/:id
+/incidents/[id]
 ```
 
 Web data flow:
@@ -704,6 +758,13 @@ Docker Event는 기존 Host Agent의 실제 ingestion path를 사용했다.
 WBS 7.2 user-local E2E는 수동 DB INSERT / UPDATE / DELETE 없이 `Final Result: PASS`까지 성공했다.
 automatic Incident detection은 추가하지 않았고 기존 manual Incident trigger를 유지한다.
 Chronos는 correlation과 metric 변화를 조사 context로 보여주며 이를 root cause라고 단정하지 않는다.
+
+#### Pending WBS 7.4 bug candidates
+
+WBS 7.3에서는 다음 문제를 해결하지 않았다. 둘 다 WBS 7.4 investigation 대상으로 유지한다.
+
+- Candidate A: repeated E2E 실행에서 demo-app의 실제 fault delay가 약 `600ms`인데 Prometheus latency measurement가 약 `20ms`로 관측되어 threshold fail할 수 있음
+- Candidate B: repeated/failed E2E 실행 과정에서 `Chronos Demo Service` duplicate record가 생성될 수 있음
 
 ### Discord
 

@@ -30,6 +30,22 @@ function mapService(row: ServiceRow): Service {
     };
 }
 
+export async function listServices(): Promise<Service[]> {
+    const result = await pool.query(
+        `SELECT
+             id,
+             name,
+             description,
+             prometheus_job,
+             created_at,
+             updated_at
+         FROM services
+         ORDER BY name ASC, id ASC;`,
+    );
+
+    return (result.rows as ServiceRow[]).map(mapService);
+}
+
 export async function createService(input: CreateService): Promise<Service> {
     const result = await pool.query(
         `INSERT INTO services (

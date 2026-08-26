@@ -28,6 +28,7 @@
 - 6.3 통합 smoke test — 완료
 - 7.1 Demo App 및 장애 시나리오 제작 — 완료
 - 7.2 End-to-End Incident 완성 — 완료
+- 7.3 핵심 UI 정리 — 완료
 
 ### Current Assigned
 
@@ -35,7 +36,7 @@
 
 Last approved WBS:
 
-- WBS 7.2 End-to-End Incident 완성
+- WBS 7.3 핵심 UI 정리
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
@@ -66,6 +67,7 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 6.3 통합 smoke test
 - WBS 7.1 Demo App 및 장애 시나리오 제작
 - WBS 7.2 End-to-End Incident 완성
+- WBS 7.3 핵심 UI 정리
 
 WBS 6.1에서 v0.1 UI information architecture를 확정했다.
 
@@ -139,6 +141,32 @@ WBS 7.2에서 수동 DB 수정 없이 실제 ingestion / correlation / metric / 
 - 처음부터 끝까지 수동 DB INSERT / UPDATE / DELETE 없이 E2E 1회 성공
 - scenario 종료 후 `GITHUB_WEBHOOK_SECRET`, `CHRONOS_DEMO_SERVICE_ID` temporary env 제거/복구 확인
 - healthy restore 후 demo-app `delayMs = 20` 확인
+
+WBS 7.3에서 Chronos의 core Product UI를 완성하고 사용자 local visual review를 통과했다.
+
+- Product route: `/` → `/dashboard`, `/dashboard`, `/incidents`, `/incidents/[id]`, `/services`
+- fixed top product navigation: Chronos / Dashboard / Incidents / Services
+- Dashboard에서 실제 API data 기반 Open Incident / Service 요약, Needs Attention, Recent Incidents, Recent Changes 제공
+- `/incidents`에서 Incident discovery, `/services`에서 Service discovery 제공
+- Incident Detail은 left context navigation + investigation content 구조 사용
+- Incident anchors: `#summary`, `#related-changes`, `#metric-summary`, `#timeline`
+- Related Changes를 compact evidence list로 정리하면서 API relevance ordering과 `Relevance score, not root cause probability.` 의미 유지
+- Metric Summary의 Before / After / Observed Change 비교와 Timeline chronology를 최종 visual polish
+- KO / EN preference 제공: `chronos_locale` cookie, default `en`
+- Light / Dark preference 제공: `chronos_theme` localStorage, default `light`
+- KO mode는 technical/product term을 자연스러운 경우 영어로 유지하고 설명/help text를 자연스러운 한국어로 표시
+- Metric Summary header spacing과 Timeline extraneous locale prop을 최종 수정
+- 사용자 local Visual Review 최종 PASS
+- 사용자 local API TypeScript validation PASS
+- 사용자 local Web lint PASS
+- 사용자 local Web build PASS
+- 사용자 local `git diff --check` PASS
+- WBS 7.3 완료 이후 UI는 feature-freeze 대상으로 보고 P0 bug fix에 필요한 변경 외 재설계를 하지 않음
+
+WBS 7.4에서 조사할 known bug candidates는 아직 해결하지 않았다.
+
+- Candidate A: repeated E2E에서 demo-app fault가 실제 약 `600ms`인데 Prometheus measurement가 약 `20ms`로 관측되어 threshold fail할 수 있음
+- Candidate B: repeated/failed E2E 실행 과정에서 `Chronos Demo Service` duplicate record가 생성될 수 있음
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤

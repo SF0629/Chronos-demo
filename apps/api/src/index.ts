@@ -11,10 +11,11 @@ import {
 } from "./github.js";
 import { resolveServiceBinding, upsertServiceBinding } from "./bindings.js";
 import { createEvent } from "./events.js";
-import { createService } from "./services.js";
+import { createService, listServices } from "./services.js";
 import {
     createIncident,
     getIncidentDetail,
+    listIncidents,
     resolveIncident,
 } from "./incidents.js";
 import { getIncidentCorrelation } from "./correlation.js";
@@ -283,6 +284,12 @@ app.get("/health", async (req, res) => {
     res.json({ status: "ok", database: "connected" });
 });
 
+app.get("/services", async (_req, res) => {
+    const services = await listServices();
+
+    return res.status(200).json(services);
+});
+
 app.post("/services", async (req, res) => {
     const parsed = createServiceSchema.safeParse(req.body);
 
@@ -354,6 +361,12 @@ app.post("/events", async (req, res) => {
     const result = await createEvent(parsed.data);
 
     return res.status(201).json(result);
+});
+
+app.get("/incidents", async (_req, res) => {
+    const incidents = await listIncidents();
+
+    return res.status(200).json(incidents);
 });
 
 app.post("/incidents", async (req, res) => {

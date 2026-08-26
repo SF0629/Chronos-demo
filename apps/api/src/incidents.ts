@@ -83,6 +83,40 @@ export type IncidentDetail = {
     triggerType: string;
 };
 
+function mapIncidentDetail(incident: IncidentDetailRow): IncidentDetail {
+    return {
+        id: incident.id,
+        serviceId: incident.service_id,
+        serviceName: incident.service_name,
+        prometheusJob: incident.prometheus_job,
+        title: incident.title,
+        status: incident.status,
+        startedAt: incident.started_at.toISOString(),
+        resolvedAt: incident.resolved_at?.toISOString() ?? null,
+        triggerType: incident.trigger_type,
+    };
+}
+
+export async function listIncidents(): Promise<IncidentDetail[]> {
+    const result = await pool.query(
+        `SELECT
+             incidents.id,
+             incidents.service_id,
+             services.name AS service_name,
+             services.prometheus_job,
+             incidents.title,
+             incidents.status,
+             incidents.started_at,
+             incidents.resolved_at,
+             incidents.trigger_type
+         FROM incidents
+         JOIN services ON services.id = incidents.service_id
+         ORDER BY incidents.started_at DESC, incidents.id ASC;`,
+    );
+
+    return (result.rows as IncidentDetailRow[]).map(mapIncidentDetail);
+}
+
 export async function getIncidentDetail(
     incidentId: string,
 ): Promise<IncidentDetail | null> {
@@ -105,19 +139,5 @@ export async function getIncidentDetail(
 
     const incident = result.rows[0] as IncidentDetailRow | undefined;
 
-    if (!incident) {
-        return null;
-    }
-
-    return {
-        id: incident.id,
-        serviceId: incident.service_id,
-        serviceName: incident.service_name,
-        prometheusJob: incident.prometheus_job,
-        title: incident.title,
-        status: incident.status,
-        startedAt: incident.started_at.toISOString(),
-        resolvedAt: incident.resolved_at?.toISOString() ?? null,
-        triggerType: incident.trigger_type,
-    };
+    return incident ? mapIncidentDetail(incident) : null;
 }
