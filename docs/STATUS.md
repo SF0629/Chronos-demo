@@ -30,6 +30,7 @@
 - 7.2 End-to-End Incident 완성 — 완료
 - 7.3 핵심 UI 정리 — 완료
 - 7.4 P0 Bug Fix / E2E Reproducibility — 완료
+- 7.5 Feature Freeze — 완료
 
 ### Current Assigned
 
@@ -37,7 +38,7 @@
 
 Last approved WBS:
 
-- WBS 7.4 P0 Bug Fix / E2E Reproducibility
+- WBS 7.5 Feature Freeze
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
@@ -70,6 +71,7 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 7.2 End-to-End Incident 완성
 - WBS 7.3 핵심 UI 정리
 - WBS 7.4 P0 Bug Fix / E2E Reproducibility
+- WBS 7.5 Feature Freeze
 
 WBS 6.1에서 v0.1 UI information architecture를 확정했다.
 
@@ -177,6 +179,20 @@ WBS 7.4에서 repeated E2E reliability의 두 P0 candidate를 해결하고 user-
 - 두 run 모두 GitHub Event, Docker Event, correlation, Metric Summary, Incident Page PASS.
 - user-local Windows PowerShell parse PASS, API TypeScript PASS, `git diff --check` PASS.
 - 두 run 사이 manual DB cleanup, script modification, manual container manipulation 없음.
+
+WBS 7.5에서 Chronos v0.1 Product / API / DB / correlation / metric / E2E reliability semantics를 Feature Freeze로 확정했다.
+
+- application implementation 변경 없음. WBS 7.5는 static/regression audit와 freeze documentation만 수행했다.
+- Product routes, fixed product navigation, Incident Detail hierarchy/anchors, KO/EN locale preference, Light/Dark theme preference를 WBS 7.3 상태로 freeze했다.
+- v0.1 API contract, DB schema, Common Event contract, correlation relevance/window/ordering, Incident Metric Summary semantics를 현재 구현 상태로 freeze했다.
+- WBS 7.4의 reuse-first Service bootstrap, fresh Prometheus scrape/request-completion synchronization, counter-delta latency measurement, container identity/StartedAt generation binding을 E2E reliability baseline으로 freeze했다.
+- Supervisor 제공 user-local regression 결과: `npm run typecheck -w apps/api` PASS, `npm run typecheck -w apps/agent` PASS, `npm run lint -w apps/web` PASS, `npm run build -w apps/web` PASS, `git diff --check` PASS.
+- WBS 7.4의 manual intervention 없는 two-consecutive E2E PASS를 v0.1 runtime baseline으로 유지하며 WBS 7.5에서 E2E를 재실행하지 않았다.
+- Feature Freeze audit에서 새로운 P0 demo-breaking blocker를 발견하지 않았다.
+- 기존 historical `Chronos Demo Service` duplicate 3개는 non-blocking legacy test data이며 WBS 7.4가 repeated E2E에서 추가 duplicate 생성을 방지한다.
+- root `npm test`는 여전히 placeholder이며 repository-defined automated test suite는 없다.
+- non-critical polish/future work는 freeze 이후 backlog로 이동한다.
+- Feature Freeze 이후 frozen semantics 변경은 critical demo-breaking fix가 필요한 경우에만 허용한다.
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤

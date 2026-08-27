@@ -1299,38 +1299,88 @@ DB migration도 추가하지 않았다.
 
 ---
 
+## 12.1 Chronos v0.1 Feature Freeze
+
+WBS 7.5에서 Chronos v0.1의 Product / API / DB / Common Event / correlation / metric / demo E2E reliability contract를 현재 구현 상태로 freeze했다. WBS 7.5 자체에서는 application implementation을 변경하지 않았다.
+
+Frozen Product contract:
+
+```text
+/
+→ /dashboard
+
+/dashboard
+/incidents
+/incidents/[id]
+/services
+
+Product navigation:
+Chronos / Dashboard / Incidents / Services
+
+Incident Detail:
+Summary
+→ Related Changes
+→ Metric Summary
+→ Timeline
+
+Anchors:
+#summary
+#related-changes
+#metric-summary
+#timeline
+```
+
+Locale / theme prototype도 현재 contract로 유지한다.
+
+- Locale: `en` / `ko`, `chronos_locale` cookie, default `en`
+- Theme: `light` / `dark`, `chronos_theme` localStorage, default `light`
+
+API endpoint inventory, DB schema (`services`, `events`, `incidents`, `incident_events`, `service_source_bindings`), Common Event contract, correlation candidate window / supported Event / relevance ordering, Timeline chronology, Incident Metric Summary semantics는 현재 구현 상태를 v0.1 contract로 본다. Chronos는 correlation score를 root cause probability로 해석하거나 root cause를 확정하지 않는다.
+
+WBS 7.4에서 확정한 E2E reliability contract도 freeze한다.
+
+- demo Service bootstrap은 reuse-first
+- identity는 `name = "Chronos Demo Service"`, `prometheusJob = "demo-app"` exact match
+- duplicate match는 `createdAt ASC`, `id ASC` deterministic selection
+- recreated container identity / `StartedAt`로 generation binding
+- demo ready 이후 fresh Prometheus scrape 확인
+- measured request completion 이후 scrape 확인
+- histogram sum/count counter delta로 healthy/fault latency 측정
+- healthy 약 `20ms`, fault 약 `600ms` demo contract 유지
+
+WBS 7.4의 manual intervention 없는 two-consecutive E2E PASS를 v0.1 runtime baseline으로 사용한다. WBS 7.5 Supervisor 제공 user-local regression 결과는 API typecheck PASS, Agent typecheck PASS, Web lint PASS, Web build PASS, `git diff --check` PASS다. Feature Freeze audit에서 새로운 P0 demo-breaking blocker는 발견되지 않았다. 기존 historical demo Service duplicate record는 남을 수 있으나 WBS 7.4가 repeated E2E에서 추가 생성을 방지하므로 v0.1 freeze blocker로 보지 않는다.
+
+root `npm test`는 현재 placeholder이고 repository-defined automated test suite는 없다. Non-critical polish와 future work는 backlog로 이동하며, Feature Freeze 이후 frozen semantics는 critical demo-breaking fix가 필요한 경우가 아니면 변경하지 않는다.
+
+---
+
 ## 13. Current API
 
 현재 구현된 주요 endpoint:
 
 ```text
-GET  /health
+POST /webhooks/github
 
 GET  /metrics
-
 GET  /metrics/query-range
-
 GET  /metrics/summary
 
+GET  /health
+
+GET  /services
 POST /services
 PUT  /services/:id/source-bindings
-
-GET  /events
-
-POST /events
-
-POST /incidents
-
-GET  /incidents/:id
-
-POST /incidents/:id/resolve
-
-GET  /incidents/:id/correlation
-GET  /incidents/:id/metric-summary
-
 GET  /services/:id/events
 
-POST /webhooks/github
+GET  /events
+POST /events
+
+GET  /incidents
+POST /incidents
+GET  /incidents/:id
+POST /incidents/:id/resolve
+GET  /incidents/:id/correlation
+GET  /incidents/:id/metric-summary
 ```
 
 현재 `POST /events`는:
