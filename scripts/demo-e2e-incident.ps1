@@ -19,6 +19,9 @@ $MinimumFaultLatencySeconds = 0.4
 $MinimumLatencyRatio = 5.0
 $PollTimeoutSeconds = 90
 $BaselinePreparationPaddingSeconds = 10
+$DemoServiceName = "Chronos Demo Service"
+$DemoServiceDescription = "WBS 7.2 end-to-end demo service"
+$DemoPrometheusJob = "demo-app"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 $ComposeFile = Join-Path $RepoRoot "infra/docker-compose.yml"
@@ -60,7 +63,7 @@ function Wait-DemoReady {
                 $health.status -eq "ok" -and
                 [int]$health.delayMs -eq $ExpectedDelayMs
             ) {
-                return
+                return $health
             }
         }
         catch {
@@ -71,6 +74,37 @@ function Wait-DemoReady {
     }
 
     throw "Demo app did not become ready with DEMO_DELAY_MS=$ExpectedDelayMs"
+}
+
+function Get-DemoContainerIdentity {
+    $containerId = (
+        & docker compose -f $ComposeFile ps -q demo-app
+    ).Trim()
+
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($containerId)) {
+        throw "Unable to resolve the running demo-app container id"
+    }
+
+    $inspect = (
+        & docker inspect `
+            --format '{{.Id}}|{{.State.StartedAt}}|{{.State.Running}}' `
+            $containerId
+    ).Trim()
+
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($inspect)) {
+        throw "Unable to inspect the running demo-app container"
+    }
+
+    $parts = $inspect -split '\|', 3
+
+    if ($parts.Count -ne 3 -or $parts[2] -ne "true") {
+        throw "demo-app container is not running"
+    }
+
+    return [pscustomobject]@{
+        Id = $parts[0]
+        StartedAt = [DateTimeOffset]::Parse($parts[1])
+    }
 }
 
 function Invoke-PrometheusInstantQuery {
@@ -89,6 +123,9 @@ function Invoke-PrometheusInstantQuery {
 }
 
 function Wait-PrometheusDemoTarget {
+    param([Parameter(Mandatory = $true)][DateTimeOffset]$After)
+
+    $minimumTimestamp = $After.ToUnixTimeMilliseconds() / 1000.0
     $deadline = [DateTimeOffset]::UtcNow.AddSeconds($PollTimeoutSeconds)
 
     while ([DateTimeOffset]::UtcNow -lt $deadline) {
@@ -97,11 +134,16 @@ function Wait-PrometheusDemoTarget {
                 Invoke-PrometheusInstantQuery -Query 'up{job="demo-app"}'
             )
 
-            if (
-                $result.Count -eq 1 -and
-                [double]$result[0].value[1] -eq 1
-            ) {
-                return
+            if ($result.Count -eq 1) {
+                $sampleTimestamp = [double]$result[0].value[0]
+                $sampleValue = [double]$result[0].value[1]
+
+                if (
+                    $sampleValue -eq 1 -and
+                    $sampleTimestamp -ge $minimumTimestamp
+                ) {
+                    return $sampleTimestamp
+                }
             }
         }
         catch {
@@ -111,7 +153,10 @@ function Wait-PrometheusDemoTarget {
         Start-Sleep -Seconds 1
     }
 
-    throw 'Prometheus target up{job="demo-app"} did not reach 1'
+    throw (
+        'Prometheus did not scrape an up{job="demo-app"}=1 sample after ' +
+        $After
+    )
 }
 
 function Get-PrometheusScalar {
@@ -183,20 +228,33 @@ function Measure-DemoAverageLatency {
     $sumQuery = 'sum(demo_http_request_duration_seconds_sum{job="demo-app"})'
     $countQuery = 'sum(demo_http_request_duration_seconds_count{job="demo-app"})'
 
-    $warmupStartedAt = [DateTimeOffset]::UtcNow
     $null = Invoke-RestMethod -Uri "$DemoUrl/work" -TimeoutSec 10
-    $null = Wait-DemoMetricScrapeAfter -After $warmupStartedAt
+    $warmupCompletedAt = [DateTimeOffset]::UtcNow
+    $null = Wait-DemoMetricScrapeAfter -After $warmupCompletedAt
     $null = Wait-DemoRequestCount -ExpectedMinimum 1
 
     $baselineCount = Get-PrometheusScalar -Query $countQuery
     $baselineSum = Get-PrometheusScalar -Query $sumQuery
 
+    $actualTotalSeconds = 0.0
+
     for ($request = 1; $request -le $RequestCount; $request += 1) {
-        $null = Invoke-RestMethod -Uri "$DemoUrl/work" -TimeoutSec 10
+        $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+        try {
+            $null = Invoke-RestMethod -Uri "$DemoUrl/work" -TimeoutSec 10
+        }
+        finally {
+            $stopwatch.Stop()
+        }
+
+        $actualTotalSeconds += $stopwatch.Elapsed.TotalSeconds
     }
 
+    $trafficCompletedAt = [DateTimeOffset]::UtcNow
     $expectedCount = $baselineCount + $RequestCount
     $null = Wait-DemoRequestCount -ExpectedMinimum $expectedCount
+    $null = Wait-DemoMetricScrapeAfter -After $trafficCompletedAt
 
     $finalCount = Get-PrometheusScalar -Query $countQuery
     $finalSum = Get-PrometheusScalar -Query $sumQuery
@@ -204,40 +262,32 @@ function Measure-DemoAverageLatency {
     $countDelta = $finalCount - $baselineCount
     $sumDelta = $finalSum - $baselineSum
 
-    if ($countDelta -le 0 -or $sumDelta -lt 0) {
-        throw "Unable to calculate demo latency from Prometheus counters"
+    if ($countDelta -lt $RequestCount -or $sumDelta -lt 0) {
+        throw (
+            "Unable to calculate demo latency from observed Prometheus counter growth. " +
+            "expectedDelta=$RequestCount actualDelta=$countDelta"
+        )
     }
 
-    $averageLatency = $sumDelta / $countDelta
+    $prometheusAverageLatency = $sumDelta / $countDelta
+    $actualAverageLatency = $actualTotalSeconds / $RequestCount
 
     if (
-        [double]::IsNaN($averageLatency) -or
-        [double]::IsInfinity($averageLatency) -or
-        $averageLatency -lt 0
+        [double]::IsNaN($prometheusAverageLatency) -or
+        [double]::IsInfinity($prometheusAverageLatency) -or
+        $prometheusAverageLatency -lt 0 -or
+        [double]::IsNaN($actualAverageLatency) -or
+        [double]::IsInfinity($actualAverageLatency) -or
+        $actualAverageLatency -lt 0
     ) {
         throw "Calculated average latency is invalid"
     }
 
-    return $averageLatency
-}
-
-function Measure-CurrentContainerLatency {
-    $sumQuery = 'sum(demo_http_request_duration_seconds_sum{job="demo-app"})'
-    $countQuery = 'sum(demo_http_request_duration_seconds_count{job="demo-app"})'
-
-    $workStartedAt = [DateTimeOffset]::UtcNow
-    $null = Invoke-RestMethod -Uri "$DemoUrl/work" -TimeoutSec 10
-    $null = Wait-DemoMetricScrapeAfter -After $workStartedAt
-    $null = Wait-DemoRequestCount -ExpectedMinimum 1
-
-    $sum = Get-PrometheusScalar -Query $sumQuery
-    $count = Get-PrometheusScalar -Query $countQuery
-
-    if ($count -le 0) {
-        throw "Prometheus did not observe fault workload"
+    return [pscustomobject]@{
+        ActualAverageLatency = $actualAverageLatency
+        PrometheusAverageLatency = $prometheusAverageLatency
+        ObservedRequestCount = $countDelta
     }
-
-    return $sum / $count
 }
 
 function Invoke-FaultTrafficAfterIncident {
@@ -283,6 +333,80 @@ function Invoke-ApiJson {
     }
 
     return Invoke-RestMethod @parameters
+}
+
+function Get-DemoServiceMatches {
+    $response = Invoke-RestMethod -Uri "$ApiUrl/services" -TimeoutSec 10
+    $services = @($response)
+
+    return @(
+        $services |
+            Where-Object {
+                [string]$_.name -eq $DemoServiceName -and
+                [string]$_.prometheusJob -eq $DemoPrometheusJob
+            } |
+            Sort-Object `
+                @{ Expression = { [DateTimeOffset]::Parse([string]$_.createdAt) } }, `
+                @{ Expression = { [string]$_.id } }
+    )
+}
+
+function Resolve-DemoService {
+    $matchesBefore = @(Get-DemoServiceMatches)
+    $service = $null
+    $created = $false
+
+    if ($matchesBefore.Count -gt 0) {
+        $service = $matchesBefore[0]
+    }
+    else {
+        $service = Invoke-ApiJson `
+            -Method "POST" `
+            -Path "/services" `
+            -Body @{
+                name = $DemoServiceName
+                description = $DemoServiceDescription
+                prometheusJob = $DemoPrometheusJob
+            }
+        $created = $true
+    }
+
+    $matchesAfter = @(Get-DemoServiceMatches)
+
+    if ($null -eq $service -or [string]::IsNullOrWhiteSpace([string]$service.id)) {
+        throw "Demo Service bootstrap did not resolve an id"
+    }
+
+    $selected = @(
+        $matchesAfter | Where-Object { [string]$_.id -eq [string]$service.id }
+    )
+
+    if ($selected.Count -ne 1) {
+        throw "Selected demo Service is not present in GET /services"
+    }
+
+    $expectedAfterCount = if ($matchesBefore.Count -eq 0) { 1 } else { $matchesBefore.Count }
+
+    if ($matchesAfter.Count -ne $expectedAfterCount) {
+        throw (
+            "Demo Service row count changed unexpectedly. " +
+            "before=$($matchesBefore.Count) after=$($matchesAfter.Count)"
+        )
+    }
+
+    if ($matchesBefore.Count -gt 1) {
+        Write-Warning (
+            "Existing duplicate demo Services detected ($($matchesBefore.Count)). " +
+            "Reusing deterministic Service id=$($service.id); no new duplicate was created."
+        )
+    }
+
+    return [pscustomobject]@{
+        Service = $service
+        Created = $created
+        CountBefore = $matchesBefore.Count
+        CountAfter = $matchesAfter.Count
+    }
 }
 
 function Get-ServiceEvents {
@@ -632,23 +756,27 @@ $githubEvent = $null
 $dockerEvent = $null
 $baselineLatency = $null
 $faultLatency = $null
+$baselineActualLatency = $null
+$faultActualLatency = $null
+$serviceCountBefore = $null
+$serviceCountAfter = $null
+$serviceCountFinal = $null
+$serviceBootstrapMode = $null
+$healthyContainer = $null
+$faultContainer = $null
+$healthyHealth = $null
+$faultHealth = $null
+$healthyScrapeTimestamp = $null
+$faultScrapeTimestamp = $null
 $incidentPageUrl = $null
 
 try {
-    $service = Invoke-ApiJson `
-        -Method "POST" `
-        -Path "/services" `
-        -Body @{
-            name = "Chronos Demo Service"
-            description = "WBS 7.2 end-to-end demo service"
-            prometheusJob = "demo-app"
-        }
-
+    $serviceResolution = Resolve-DemoService
+    $service = $serviceResolution.Service
     $serviceId = [string]$service.id
-
-    if ([string]::IsNullOrWhiteSpace($serviceId)) {
-        throw "Service bootstrap did not return an id"
-    }
+    $serviceCountBefore = [int]$serviceResolution.CountBefore
+    $serviceCountAfter = [int]$serviceResolution.CountAfter
+    $serviceBootstrapMode = if ([bool]$serviceResolution.Created) { "CREATED" } else { "REUSED" }
 
     $binding = Invoke-ApiJson `
         -Method "PUT" `
@@ -674,28 +802,40 @@ try {
     Invoke-Compose -Arguments @(
         "up", "-d", "--force-recreate", "demo-app"
     )
-    Wait-DemoReady -ExpectedDelayMs $HealthyDelayMs
-    Wait-PrometheusDemoTarget
+    $healthyContainer = Get-DemoContainerIdentity
+    $healthyHealth = Wait-DemoReady -ExpectedDelayMs $HealthyDelayMs
+    $healthyReadyAt = [DateTimeOffset]::UtcNow
+    $healthyScrapeTimestamp = Wait-PrometheusDemoTarget -After $healthyReadyAt
 
     # Flush old demo-app fault samples from the 60-second incident window and
     # continuously create healthy observations for a reproducible baseline.
     Prepare-CleanBaselineWindow
-    $baselineLatency = Measure-DemoAverageLatency
+    $baselineMeasurement = Measure-DemoAverageLatency
+    $baselineActualLatency = [double]$baselineMeasurement.ActualAverageLatency
+    $baselineLatency = [double]$baselineMeasurement.PrometheusAverageLatency
 
     $faultDeploymentStartedAt = [DateTimeOffset]::UtcNow.AddSeconds(-2)
     Invoke-Compose -Fault -Arguments @(
         "up", "-d", "--force-recreate", "demo-app"
     )
-    Wait-DemoReady -ExpectedDelayMs $FaultDelayMs
-    Wait-PrometheusDemoTarget
+    $faultContainer = Get-DemoContainerIdentity
+    $faultHealth = Wait-DemoReady -ExpectedDelayMs $FaultDelayMs
+    $faultReadyAt = [DateTimeOffset]::UtcNow
+    $faultScrapeTimestamp = Wait-PrometheusDemoTarget -After $faultReadyAt
+
+    if ([string]$faultContainer.Id -eq [string]$healthyContainer.Id) {
+        throw "Fault deployment did not recreate the demo-app container"
+    }
 
     $dockerEvent = Wait-DockerEvent `
         -ServiceId $serviceId `
         -After $faultDeploymentStartedAt
 
-    # One observed fault request is enough to prove the latency change before
-    # opening the manual incident while keeping the before-window mostly healthy.
-    $faultLatency = Measure-CurrentContainerLatency
+    # Establish a fresh fault-process counter baseline, then require one new
+    # completed /work request to appear in Prometheus before calculating latency.
+    $faultMeasurement = Measure-DemoAverageLatency -RequestCount 1
+    $faultActualLatency = [double]$faultMeasurement.ActualAverageLatency
+    $faultLatency = [double]$faultMeasurement.PrometheusAverageLatency
     $latencyRatio = if ($baselineLatency -gt 0) { $faultLatency / $baselineLatency } else { [double]::PositiveInfinity }
 
     if (
@@ -794,16 +934,40 @@ try {
         -GitHubTitle ([string]$githubEvent.title) `
         -DockerTitle ([string]$dockerEvent.title)
 
+    $serviceCountFinal = @(Get-DemoServiceMatches).Count
+
+    if ($serviceCountFinal -ne $serviceCountAfter) {
+        throw (
+            "Demo Service row count changed during the E2E run. " +
+            "afterBootstrap=$serviceCountAfter final=$serviceCountFinal"
+        )
+    }
+
     Write-Host ""
     Write-Host "E2E Incident Result"
     Write-Host ""
     Write-Host "Service ID: $serviceId"
+    Write-Host "Service bootstrap: $serviceBootstrapMode"
+    Write-Host "Demo Service rows: before=$serviceCountBefore after=$serviceCountFinal"
     Write-Host ""
     Write-Host "GitHub Event: PASS"
     Write-Host "Docker Event: PASS"
+    Write-Host "Healthy container: $($healthyContainer.Id)"
+    Write-Host "Healthy container startedAt: $($healthyContainer.StartedAt.ToString('o'))"
+    Write-Host "Fault container: $($faultContainer.Id)"
+    Write-Host "Fault container startedAt: $($faultContainer.StartedAt.ToString('o'))"
+    Write-Host "Healthy /health delayMs: $($healthyHealth.delayMs)"
+    Write-Host "Fault /health delayMs: $($faultHealth.delayMs)"
     Write-Host ""
-    Write-Host ("Baseline latency: {0:N4}s" -f $baselineLatency)
-    Write-Host ("Fault latency: {0:N4}s" -f $faultLatency)
+    Write-Host ("Healthy actual latency: {0:N4}s" -f $baselineActualLatency)
+    Write-Host ("Healthy Prometheus measurement: {0:N4}s" -f $baselineLatency)
+    Write-Host "Healthy Prometheus request delta: $($baselineMeasurement.ObservedRequestCount)"
+    Write-Host ("Fault actual latency: {0:N4}s" -f $faultActualLatency)
+    Write-Host ("Fault Prometheus measurement: {0:N4}s" -f $faultLatency)
+    Write-Host "Fault Prometheus request delta: $($faultMeasurement.ObservedRequestCount)"
+    Write-Host ("Baseline/fault ratio: {0:N2}x" -f $latencyRatio)
+    Write-Host ("Healthy Prometheus scrape timestamp: {0:N3}" -f $healthyScrapeTimestamp)
+    Write-Host ("Fault Prometheus scrape timestamp: {0:N3}" -f $faultScrapeTimestamp)
     Write-Host "Metric change: PASS"
     Write-Host ""
     Write-Host "Incident ID: $incidentId"
@@ -813,6 +977,9 @@ try {
     Write-Host "Docker PASS"
     Write-Host ""
     Write-Host "Metric Summary: PASS"
+    Write-Host ("Metric Summary before: {0:N4}s" -f $beforeAverageLatency)
+    Write-Host ("Metric Summary after: {0:N4}s" -f $afterAverageLatency)
+    Write-Host ("Metric Summary ratio: {0:N2}x" -f $summaryRatio)
     Write-Host ""
     Write-Host "Incident Page:"
     Write-Host $incidentPageUrl
@@ -838,7 +1005,8 @@ finally {
         Invoke-Compose -Arguments @(
             "up", "-d", "--force-recreate", "demo-app"
         )
-        Wait-DemoReady -ExpectedDelayMs $HealthyDelayMs
+        $restoredHealth = Wait-DemoReady -ExpectedDelayMs $HealthyDelayMs
+        Write-Host "Healthy restore: PASS (delayMs=$($restoredHealth.delayMs))"
     }
     catch {
         $cleanupErrors += (

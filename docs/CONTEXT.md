@@ -223,6 +223,18 @@ Service bootstrap:
 POST /services
 ```
 
+WBS 7.4부터 demo E2E bootstrap은 reuse-first / idempotent contract를 사용한다.
+
+```text
+GET /services
+→ exact match: name = "Chronos Demo Service"
+               prometheusJob = "demo-app"
+→ existing match가 있으면 createdAt ASC, id ASC로 deterministic selection
+→ match가 없을 때만 POST /services
+```
+
+기존 failed/repeated run에서 생성된 historical duplicate record는 WBS 7.4에서 삭제하지 않는다. E2E는 기존 duplicate가 있어도 deterministic하게 하나를 재사용하고 matching row count가 run 전후 증가하지 않는지 검증한다.
+
 Service의 `prometheus_job`은 Incident metric target selection에 사용한다.
 API JSON contract에서는 `prometheusJob`으로 노출한다.
 
@@ -759,12 +771,40 @@ WBS 7.2 user-local E2E는 수동 DB INSERT / UPDATE / DELETE 없이 `Final Resul
 automatic Incident detection은 추가하지 않았고 기존 manual Incident trigger를 유지한다.
 Chronos는 correlation과 metric 변화를 조사 context로 보여주며 이를 root cause라고 단정하지 않는다.
 
-#### Pending WBS 7.4 bug candidates
+#### WBS 7.4 E2E reliability contract
 
-WBS 7.3에서는 다음 문제를 해결하지 않았다. 둘 다 WBS 7.4 investigation 대상으로 유지한다.
+WBS 7.4에서 repeated E2E의 Prometheus synchronization과 demo Service bootstrap을 deterministic하게 정리했다. 이전 WBS 7.4 candidate A/B는 해결된 상태다.
 
-- Candidate A: repeated E2E 실행에서 demo-app의 실제 fault delay가 약 `600ms`인데 Prometheus latency measurement가 약 `20ms`로 관측되어 threshold fail할 수 있음
-- Candidate B: repeated/failed E2E 실행 과정에서 `Chronos Demo Service` duplicate record가 생성될 수 있음
+Service bootstrap:
+
+- reuse-first이며 `GET /services`를 먼저 사용한다.
+- demo Service identity는 `name = "Chronos Demo Service"`, `prometheusJob = "demo-app"` exact match다.
+- duplicate match가 이미 있으면 `createdAt ASC`, `id ASC` 순서로 deterministic selection한다.
+- matching Service가 없을 때만 `POST /services`를 호출한다.
+- historical duplicate record는 자동 삭제하지 않는다. WBS 7.4 acceptance 시작 시 기존 3개 row가 있었고 두 consecutive run 모두 `3 → 3`으로 유지됐다.
+- Windows PowerShell 5.1에서는 `Invoke-RestMethod` array response를 `$response`로 받은 뒤 `$services = @($response)`로 normalization한다.
+
+Prometheus latency measurement:
+
+```text
+container recreate
+→ new container identity / StartedAt 확인
+→ demo ready
+→ ready 이후 fresh Prometheus scrape 확인
+→ baseline histogram sum/count 확보
+→ measured request 완료
+→ request completion 이후 scrape + expected count growth 확인
+→ histogram sum/count delta로 measured latency 계산
+```
+
+따라서 `up{job="demo-app"} == 1`의 오래된 scrape나 request completion 이전 sample을 fault measurement ready condition으로 사용하지 않는다. healthy/fault 모두 completed measured requests 사이의 counter delta를 사용한다. 기존 validation threshold `fault >= 0.4s`, `baseline/fault ratio >= 5x`는 유지한다.
+
+WBS 7.4 user-local acceptance는 manual DB cleanup, script modification, manual container manipulation 없이 동일 E2E를 2회 연속 실행해 모두 `Final Result: PASS`를 확인했다. 두 run 모두 동일 Service `a77cc7ed-9af2-4734-909f-a88ba293a7ed`를 REUSED했고 GitHub Event, Docker Event, correlation, Metric Summary, Incident Page 및 final healthy restore `delayMs=20`이 PASS했다.
+
+- Run 1: healthy actual `0.0252s` / Prometheus `0.0205s`, fault actual `0.6053s` / Prometheus `0.6007s`, baseline/fault `29.35x`
+- Run 2: healthy actual `0.0312s` / Prometheus `0.0204s`, fault actual `0.6135s` / Prometheus `0.6005s`, baseline/fault `29.41x`
+
+이 reliability contract는 E2E demo에 대한 것이며 product/UI architecture, manual Incident trigger, Common Event/correlation semantics, Metric Summary semantics를 변경하지 않는다.
 
 ### Discord
 

@@ -29,6 +29,7 @@
 - 7.1 Demo App 및 장애 시나리오 제작 — 완료
 - 7.2 End-to-End Incident 완성 — 완료
 - 7.3 핵심 UI 정리 — 완료
+- 7.4 P0 Bug Fix / E2E Reproducibility — 완료
 
 ### Current Assigned
 
@@ -36,7 +37,7 @@
 
 Last approved WBS:
 
-- WBS 7.3 핵심 UI 정리
+- WBS 7.4 P0 Bug Fix / E2E Reproducibility
 
 다음 WBS는 Worker가 임의로 추측하지 않는다.
 Supervisor가 기존 WBS를 확인한 뒤 다음 WBS를 명시적으로 할당한다.
@@ -68,6 +69,7 @@ Supervisor가 확인한 현재 완료 상태:
 - WBS 7.1 Demo App 및 장애 시나리오 제작
 - WBS 7.2 End-to-End Incident 완성
 - WBS 7.3 핵심 UI 정리
+- WBS 7.4 P0 Bug Fix / E2E Reproducibility
 
 WBS 6.1에서 v0.1 UI information architecture를 확정했다.
 
@@ -163,10 +165,18 @@ WBS 7.3에서 Chronos의 core Product UI를 완성하고 사용자 local visual 
 - 사용자 local `git diff --check` PASS
 - WBS 7.3 완료 이후 UI는 feature-freeze 대상으로 보고 P0 bug fix에 필요한 변경 외 재설계를 하지 않음
 
-WBS 7.4에서 조사할 known bug candidates는 아직 해결하지 않았다.
+WBS 7.4에서 repeated E2E reliability의 두 P0 candidate를 해결하고 user-local에서 동일 절차 2회 연속 PASS를 확인했다.
 
-- Candidate A: repeated E2E에서 demo-app fault가 실제 약 `600ms`인데 Prometheus measurement가 약 `20ms`로 관측되어 threshold fail할 수 있음
-- Candidate B: repeated/failed E2E 실행 과정에서 `Chronos Demo Service` duplicate record가 생성될 수 있음
+- Candidate A resolved: recreate 이후 새 container generation과 완료된 measured request에 Prometheus observation을 묶도록 synchronization을 강화했다. fresh post-ready scrape와 request completion 이후 scrape를 확인하고 healthy/fault latency를 cumulative absolute 값이 아닌 counter delta로 측정한다. 기존 threshold `fault >= 0.4s`, `ratio >= 5x`는 유지했다.
+- Candidate B resolved for repeated E2E creation: `GET /services`에서 `name = "Chronos Demo Service"`, `prometheusJob = "demo-app"` exact match를 조회하고 `createdAt ASC`, `id ASC`로 deterministic reuse한다. matching Service가 없을 때만 `POST /services`를 호출한다.
+- Windows PowerShell 5.1 compatibility: `Invoke-RestMethod`의 JSON array response를 먼저 `$response`에 받고 `$services = @($response)`로 normalization하여 개별 Service object filtering을 보장한다.
+- 기존 acceptance 시작 시 historical duplicate demo Service는 3개였으며 삭제하지 않았다. Run 1과 Run 2 모두 matching row count가 `3 → 3`으로 유지되어 추가 duplicate가 생성되지 않았다.
+- deterministic selected Service ID: `a77cc7ed-9af2-4734-909f-a88ba293a7ed`
+- Run 1: healthy actual `0.0252s`, Prometheus `0.0205s`; fault actual `0.6053s`, Prometheus `0.6007s`; baseline/fault `29.35x`; Incident `79636864-258d-4054-935c-0cd2e813d59b`; Final Result PASS; healthy restore `delayMs=20` PASS.
+- Run 2: healthy actual `0.0312s`, Prometheus `0.0204s`; fault actual `0.6135s`, Prometheus `0.6005s`; baseline/fault `29.41x`; Incident `b5d15567-51be-45eb-b5de-762745adadc2`; Final Result PASS; healthy restore `delayMs=20` PASS.
+- 두 run 모두 GitHub Event, Docker Event, correlation, Metric Summary, Incident Page PASS.
+- user-local Windows PowerShell parse PASS, API TypeScript PASS, `git diff --check` PASS.
+- 두 run 사이 manual DB cleanup, script modification, manual container manipulation 없음.
 
 Docker Event와 GitHub push Event 모두
 Chronos Common Event로 정규화된 뒤
